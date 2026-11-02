@@ -20,26 +20,39 @@ Playground data is stored in ignored `.local/demo.json`. Set `POCKET_BASE_DATA_D
 ## Connect your family studio
 
 1. Create a free Supabase project.
-2. Run `supabase/migrations/001_studio.sql` in its SQL editor.
-3. In **Authentication → Providers / Sign In settings**, disable new public user signups. Create your family's account from **Authentication → Users → Add user**, with an email and password. Mark the account confirmed when creating it. Children can use the parent-managed family account.
-4. For separate private accounts, create more users in that dashboard. Each account owns separate projects and revisions. There is no public signup or team collaboration UI.
-5. Set these in `.env.local`, then restart and sign in:
+2. Set these in your ignored `.env.local`:
 
        POCKET_BASE_DEMO=false
        NEXT_PUBLIC_SUPABASE_URL=your-project-url
        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-legacy-anon-key
+       SUPABASE_ACCESS_TOKEN=your-server-only-account-access-token
        OPENROUTER_API_KEY=your-server-only-key
-       OPENROUTER_MODEL=openrouter/free
+       OPENROUTER_MODEL=deepseek/deepseek-v4.1-flash
 
-No Supabase service-role key is required. PostgreSQL row-level security and ownership-checked functions protect private records. Public access returns only the published game's title, description, theme, source, and revision identity. Drafts and prompts stay private.
+3. Create the **account access token** at https://supabase.com/dashboard/account/tokens. This is separate from the project's publishable key. Keep it server-only; never prefix it with `NEXT_PUBLIC_` or commit it.
+4. Run `npm run dev`. Startup checks the migration history and applies pending SQL files automatically. No SQL editor, database password, CLI login, or Keychain prompt is needed. `npm run db:migrate` applies migrations explicitly, including while playground mode is enabled.
+5. In **Authentication → Providers / Sign In settings**, disable new public user signups. Create your family's account from **Authentication → Users → Add user**, with an email and password. Mark the account confirmed when creating it, then sign in locally. Children can use the parent-managed family account.
 
-### Free inference and usage
+For separate private accounts, create more users in that dashboard. Each account owns separate projects and revisions. There is no public signup or team collaboration UI.
 
-Only `openrouter/free` and explicit model IDs ending in `:free` are accepted. Requests also cap provider prompt and completion prices at zero. No paid fallback is configured.
+No Supabase service-role key is required by the app. PostgreSQL row-level security and ownership-checked functions protect private records. Public access returns only the published game's title, description, theme, source, and revision identity. Drafts and prompts stay private.
+
+Migration checks target the hosted project in `NEXT_PUBLIC_SUPABASE_URL`. An up-to-date database needs no admin token. Pending migrations without `SUPABASE_ACCESS_TOKEN` stop startup with setup instructions instead of consulting saved credentials. Failed migrations also stop startup. Disposable playground mode skips cloud setup.
+
+### Models and usage
+
+`OPENROUTER_MODEL` supports these explicit choices:
+
+- `openrouter/free`, or a model ID ending in `:free`: provider prompt and completion prices are capped at zero.
+- `deepseek/deepseek-v4.1-flash` (default): a paid coding option, capped at **$0.30 input and $1.20 output per million tokens**. Requests prefer cheaper eligible providers, disable optional reasoning, and allow at most 10,000 generated tokens. If no provider fits those caps, the request stops.
+
+No model automatically falls back to a different or more expensive model. Select a model through `OPENROUTER_MODEL` in `.env.local` or Vercel; DeepSeek uses the existing OpenRouter key and account credits. At the rate caps, an illustrative 2,000-input / 5,000-output token request costs $0.0066. Longer games and revision prompts use more tokens. Playing a finished game uses no inference. Rate caps and attempt limits are not a monthly spending cap; use an OpenRouter key budget for a fixed account spending allowance.
 
 The app reserves attempts transactionally in PostgreSQL before calling OpenRouter: **20 attempts per account per UTC day, 40 across the app, and one active generation per account**. Failed attempts count. A five-minute lease prevents abandoned requests from locking an account indefinitely. These conservative limits do not replace OpenRouter's own account/provider limits.
 
 Each create/edit uses a single model request, with no automatic retry loop. Finished games run locally in the browser and use no inference.
+
+Provider errors distinguish a rejected OpenRouter key, an upstream provider credential failure, unavailable free endpoints, and rate limits. If Google AI Studio reports an invalid key, check any Google BYOK connection in OpenRouter. A working OpenRouter API key does not guarantee that its upstream provider credentials work. No credentials or raw provider errors are shown in app responses.
 
 ## Deploy to Vercel once
 
@@ -48,6 +61,8 @@ Each create/edit uses a single model request, with no automatic retry loop. Fini
 3. Add the production environment variables above. Set `POCKET_BASE_DEMO=false`; do not upload `.env.local` or playground data.
 4. Deploy. Set Supabase's Site URL to your production HTTPS URL.
 5. Allow anonymous visits to production play URLs at the Vercel deployment level. The app itself requires login for the builder and private APIs.
+
+Production builds apply pending migrations automatically when `SUPABASE_ACCESS_TOKEN` is set in Vercel's **Production** environment. Without it, builds verify the database was migrated locally and stop if migrations are pending. Preview builds only verify readiness and never modify the shared database, even if an admin token is present. GitHub Actions runs checks; Vercel's Git integration handles deployment without a custom deployment workflow.
 
 The generation route configures `maxDuration=300` and times out inference after 250 seconds. Use Vercel Fluid Compute. The server uses Node.js and durable data lives in Supabase; Vercel's filesystem is never the production database.
 

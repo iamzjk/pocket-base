@@ -12,7 +12,10 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
     "test:browser": "playwright test",
-    "setup": "node scripts/first-run.mjs"
+    "setup": "node scripts/first-run.mjs",
+    "predev": "node scripts/migrate.mjs dev",
+    "prebuild": "node scripts/migrate.mjs build",
+    "db:migrate": "node scripts/migrate.mjs migrate"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -31,6 +34,7 @@
     "@types/node": "^26.6.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "supabase": "2.122.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

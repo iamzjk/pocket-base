@@ -13,5 +13,5 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: { command: "npm run start -- --port 3217", url: "http://127.0.0.1:3217", reuseExistingServer: false,
     env: { POCKET_BASE_DEMO: "true", POCKET_BASE_DATA_DIR: dataDir,
-      OPENROUTER_API_KEY: "fictional-browser-test-key", POCKET_BASE_E2E_MODEL: "true", NODE_OPTIONS: "--import=" + path.join(process.cwd(), "tests/fixtures/openrouter.mjs"), NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" }, timeout: 60_000 },
+      OPENROUTER_API_KEY: "fictional-browser-test-key", OPENROUTER_MODEL: "deepseek/deepseek-v4.1-flash", POCKET_BASE_E2E_MODEL: "true", NODE_OPTIONS: "--import=" + path.join(process.cwd(), "tests/fixtures/openrouter.mjs"), NEXT_PUBLIC_SUPABASE_URL: "", NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "" }, timeout: 60_000 },
 });

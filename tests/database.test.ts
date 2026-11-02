@@ -9,6 +9,9 @@ test("the PostgreSQL migration enforces ownership, publishing, and shared quotas
     const owners = ["00000000-0000-4000-8000-000000000011","00000000-0000-4000-8000-000000000012","00000000-0000-4000-8000-000000000013"];
     for (const id of owners) await db.query("insert into auth.users values($1)", [id]);
     await db.exec(await readFile(new URL("../supabase/migrations/001_studio.sql", import.meta.url), "utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/002_migration_readiness.sql", import.meta.url), "utf8"));
+    assert.deepEqual((await db.query<{ versions: string[] }>("select public.studio_migration_versions() as versions")).rows[0].versions, []);
+    await db.exec("create schema supabase_migrations; create table supabase_migrations.schema_migrations(version text primary key, statements text[], name text); insert into supabase_migrations.schema_migrations values ('001',array['PRIVATE migration source'],'studio'),('002',array['PRIVATE migration source'],'migration_readiness');");
     async function asUser(id: string | null) {
       await db.exec("reset role");
       await db.query("select set_config('request.jwt.claim.sub',$1,false)", [id || ""]);
@@ -26,6 +29,8 @@ test("the PostgreSQL migration enforces ownership, publishing, and shared quotas
       await asUser(null);
       await assert.rejects(db.query("select * from public.projects"), /permission denied/);
       await assert.rejects(db.query("select public.project_detail($1)",[first.id]), /permission denied/);
+      assert.deepEqual((await db.query<{ versions: string[] }>("select public.studio_migration_versions() as versions")).rows[0].versions, ["001", "002"]);
+      await assert.rejects(db.query("select * from supabase_migrations.schema_migrations"), /permission denied/);
       assert.equal((await db.query<{ game: unknown }>("select public.public_game($1) as game",[first.id])).rows[0].game, null);
     });
     await t.test("another owner cannot read or mutate the project", async () => {

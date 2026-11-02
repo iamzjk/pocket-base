@@ -33,7 +33,7 @@ test("phone and desktop builder: play, preserve failed edits, publish, and unpub
   await page.getByRole("tab", { name: "Make changes" }).click();
   await page.getByLabel("Describe a change to your game").fill("Try the busy model");
   await page.getByRole("button", { name: "Make this change" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "free game maker" })).toContainText("busy or has reached its allowance");
+  await expect(page.getByRole("alert").filter({ hasText: "game maker" })).toContainText("busy or has reached its allowance");
   const after = await (await request.get("/api/projects/" + id)).json();
   expect(after.currentRevisionId).toBe(before.currentRevisionId);
   expect(after.revisions).toHaveLength(before.revisions.length);

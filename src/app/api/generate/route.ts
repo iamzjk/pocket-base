@@ -1,6 +1,6 @@
 import { requireStore } from "@/lib/auth";
 import { errorResponse, readMutation, requireId, StudioError } from "@/lib/errors";
-import { freeModel, generateGame } from "@/lib/generate";
+import { generationModel, generateGame } from "@/lib/generate";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       previous = project.revisions.find(r => r.id === baseRevisionId);
     }
     if (!process.env.OPENROUTER_API_KEY) throw new StudioError("AI game-making isn't connected yet. Ask a grown-up to connect it; you can still play the starter games.", 503);
-    freeModel();
+    generationModel();
     const attempt = await store.reserveGeneration();
     try {
       const game = await generateGame(prompt, previous);
