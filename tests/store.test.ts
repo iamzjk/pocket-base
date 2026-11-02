@@ -17,12 +17,15 @@ test("draft revisions, ownership, publish/restore, and stale writes", async () =
     assert.deepEqual(await own.publishedGames(), emptyLibrary);
     const first = await own.save({ ...starters[0], iconSvg: "fictional-original-icon", prompt: "PRIVATE first prompt" });
     assert.equal(await other.detail(first.id), null);
+    assert.deepEqual(await own.projectIcon(first.id), { title: first.title, theme: first.theme, iconSvg: "fictional-original-icon" });
+    assert.equal(await other.projectIcon(first.id), null);
     await assert.rejects(other.select(first.id, first.currentRevisionId, "publish"), /couldn't be found/);
     await assert.rejects(other.save({ ...starters[0], projectId: first.id, baseRevisionId: first.currentRevisionId, prompt: "steal" }), /couldn't be found/);
     assert.equal(await own.publicGame(first.id), null);
     await own.select(first.id, first.currentRevisionId, "publish");
     const next = await own.save({ ...starters[0], title: "Draft title", iconSvg: "fictional-new-icon", prompt: "PRIVATE draft", projectId: first.id, baseRevisionId: first.currentRevisionId });
     assert.equal(next.revisions.find(r=>r.id===next.currentRevisionId)?.iconSvg,"fictional-original-icon");
+    assert.deepEqual(await own.projectIcon(first.id), { title: "Draft title", theme: first.theme, iconSvg: "fictional-original-icon" });
     const publicGame = await other.publicGame(first.id);
     assert.equal(publicGame?.revisionId, first.currentRevisionId);
     assert.equal(publicGame?.title, first.title);
@@ -39,6 +42,7 @@ test("draft revisions, ownership, publish/restore, and stale writes", async () =
     assert.equal((await other.publicGame(first.id))?.title, "Draft title");
     await own.unpublish(first.id);
     assert.equal(await other.publicGame(first.id), null);
+    assert.equal((await own.projectIcon(first.id))?.iconSvg, "fictional-original-icon");
     assert.deepEqual(await own.publishedGames(), emptyLibrary);
   } finally { await rm(dir, { recursive: true, force: true }); }
 });

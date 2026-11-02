@@ -30,6 +30,7 @@ test("the PostgreSQL migration enforces ownership, publishing, and shared quotas
     await t.test("anonymous visitors cannot read tables or use private functions", async () => {
       await asUser(null);
       await assert.rejects(db.query("select * from public.projects"), /permission denied/);
+      await assert.rejects(db.query("select title,theme,icon_svg from public.revisions"), /permission denied/);
       await assert.rejects(db.query("select public.project_detail($1)",[first.id]), /permission denied/);
       assert.deepEqual((await db.query<{ versions: string[] }>("select public.studio_migration_versions() as versions")).rows[0].versions, ["001", "002", "003", "004"]);
       await assert.rejects(db.query("select * from supabase_migrations.schema_migrations"), /permission denied/);
@@ -38,6 +39,7 @@ test("the PostgreSQL migration enforces ownership, publishing, and shared quotas
     await t.test("another owner cannot read or mutate the project", async () => {
       await asUser(owners[1]);
       assert.equal((await db.query("select * from public.projects")).rows.length,0);
+      assert.equal((await db.query("select title,theme,icon_svg from public.revisions where id=$1", [first.current_revision_id])).rows.length,0);
       assert.equal((await db.query<{ d: unknown }>("select public.project_detail($1) as d",[first.id])).rows[0].d,null);
       await assert.rejects(save(first.id,first.current_revision_id,"Stolen"), /PS_NOT_FOUND/);
       await assert.rejects(db.query("select public.select_revision($1,$2,'publish')",[first.id,first.current_revision_id]), /PS_NOT_FOUND/);

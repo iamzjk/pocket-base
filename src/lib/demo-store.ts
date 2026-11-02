@@ -5,7 +5,7 @@ import { requireId, StudioError } from "./errors";
 import { classicGames, classicListings } from "./classic-games";
 import { publicName } from "./profile";
 import { libraryQuery } from "./library";
-import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary } from "./types";
+import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary, type GameIcon } from "./types";
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
 interface State {
@@ -56,6 +56,13 @@ export class DemoStore implements Store {
   }
   async list() { return this.transaction(s => s.projects.filter(p => p.ownerId === this.ownerId).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt))); }
   async detail(id: string) { return this.transaction(s => { const p = s.projects.find(p => p.id === id && p.ownerId === this.ownerId); return p ? this.view(s, p) : null; }); }
+  async projectIcon(id: string): Promise<GameIcon | null> {
+    return this.transaction(s => {
+      const p = s.projects.find(p => p.id === id && p.ownerId === this.ownerId);
+      const r = p && s.revisions.find(r => r.id === p.currentRevisionId && r.projectId === p.id);
+      return r ? { title: r.title, theme: r.theme, iconSvg: r.iconSvg || null } : null;
+    });
+  }
   async save(input: SaveInput): Promise<ProjectDetail> {
     return this.transaction(s => {
       const now = new Date().toISOString();

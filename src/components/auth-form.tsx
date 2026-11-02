@@ -32,10 +32,10 @@ export function AuthForm({ config }: { config: { url: string; key: string; siteK
     finally { setBusy(false); setCaptchaToken(""); setChallenge(n => n+1); }
   }
   return <section className="auth-card" aria-labelledby="account-heading">
-    <div className="auth-tabs" role="group" aria-label="Account access">
+    {config?.siteKey && <div className="auth-tabs" role="group" aria-label="Account access">
       <button type="button" className={!signup ? "is-active" : ""} disabled={busy} onClick={() => { setSignup(false); setPassword(""); setError(""); setCaptchaToken(""); setChallenge(n=>n+1); }}>Sign in</button>
-      {config?.siteKey && <button type="button" className={signup ? "is-active" : ""} disabled={busy} onClick={() => { setSignup(true); setPassword(""); setError(""); setCaptchaToken(""); setChallenge(n=>n+1); }}>Create account</button>}
-    </div>
+      <button type="button" className={signup ? "is-active" : ""} disabled={busy} onClick={() => { setSignup(true); setPassword(""); setError(""); setCaptchaToken(""); setChallenge(n=>n+1); }}>Create account</button>
+    </div>}
     <h1 id="account-heading">{signup ? "A studio of your own" : "Welcome to your studio"}</h1>
     <p className="modal-description">{signup ? "Make little games and share them with everyone." : "Sign in to keep creating your little worlds."}</p>
     {!config ? <p className="inline-error" role="alert">Account access isn’t available yet. You can still play games in the library.</p> : <form className="login-form" onSubmit={submit}>

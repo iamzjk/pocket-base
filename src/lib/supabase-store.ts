@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, type SaveInput, type Store, type PublicGame, type GameLibrary } from "./types";
+import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, type SaveInput, type Store, type PublicGame, type GameLibrary, type GameIcon } from "./types";
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
 import { libraryQuery, normalizeLibrary } from "./library";
@@ -50,6 +50,17 @@ export class SupabaseStore implements Store {
     const { data, error } = await this.client.rpc("project_detail", { p_id: id });
     databaseError(error);
     return data ? detail(data) : null;
+  }
+  async projectIcon(id: string): Promise<GameIcon | null> {
+    // Both reads use the session client's RLS. Avoid loading game source or revision history for a thumbnail.
+    const { data: project, error: projectError } = await this.client.from("projects")
+      .select("current_revision_id").eq("id", id).maybeSingle();
+    databaseError(projectError);
+    if (!project?.current_revision_id) return null;
+    const { data: revision, error } = await this.client.from("revisions").select("title,theme,icon_svg")
+      .eq("id", project.current_revision_id).eq("project_id", id).maybeSingle();
+    databaseError(error);
+    return revision ? { title: revision.title, theme: revision.theme as GameIcon["theme"], iconSvg: revision.icon_svg } : null;
   }
   async save(input: SaveInput) {
     const { data, error } = await this.client.rpc("save_game", {

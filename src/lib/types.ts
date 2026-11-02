@@ -33,6 +33,7 @@ export interface PublicGame {
   html: string;
   iconSvg?: string | null;
 }
+export type GameIcon = Pick<PublicGame, "title" | "theme" | "iconSvg">;
 export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme"> & { creatorName: string; updatedAt: string; playCount: number };
 export interface CreatorProfile { displayName: string }
 export interface GameLibrary { games: PublishedGame[]; hasMore: boolean; leaderboard: PublishedGame[] }
@@ -54,6 +55,7 @@ export interface Store {
   saveProfile(displayName: string): Promise<CreatorProfile>;
   list(): Promise<Project[]>;
   detail(id: string): Promise<ProjectDetail | null>;
+  projectIcon(id: string): Promise<GameIcon | null>;
   save(input: SaveInput): Promise<ProjectDetail>;
   select(id: string, revisionId: string, action: "restore" | "publish"): Promise<ProjectDetail>;
   unpublish(id: string): Promise<void>;

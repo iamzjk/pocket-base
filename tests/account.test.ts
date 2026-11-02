@@ -40,6 +40,7 @@ test("auth errors do not disclose provider payloads or report success without a 
 test("pending CAPTCHA setup preserves existing sign-in while registration stays protected",async()=>{
   const markup=renderToStaticMarkup(createElement(AuthForm,{config:{url:"https://fictional.example",key:"fictional-key"}}));
   assert.ok(markup.includes("Open my studio"));assert.equal(markup.includes("Create account"),false);
+  assert.equal(markup.includes('class="auth-tabs"'),false);
   assert.equal(markup.includes('class="primary-button" disabled'),false);
   const calls:unknown[]=[];
   const client={auth:{signInWithPassword:async(input:unknown)=>{calls.push(input);return {data:{session:{access_token:"access",refresh_token:"refresh"}},error:null};}}} as unknown as SupabaseClient;

@@ -18,6 +18,12 @@ function issue(account) {
 const user=account=>({id:account.id,email:account.email,aud:"authenticated",role:"authenticated",app_metadata:{provider:"email",providers:["email"]},user_metadata:{display_name:account.name},created_at:"2026-01-01T00:00:00Z",identities:[]});
 const existing={id:randomUUID(),email:"existing@example.test",password:"fictional-password",name:"Existing creator"};
 accounts.set(existing.email,existing);
+function projectFor(account) {
+  return { id:account.projectId ||= randomUUID(), owner_id:account.id,
+    current_revision_id:account.revisionId ||= randomUUID(), published_revision_id:null,
+    title:"Fictional account logo game",description:"A private fictional browser fixture.",theme:"mint",
+    created_at:"2026-01-01T00:00:00Z",updated_at:"2026-01-01T00:00:00Z" };
+}
 const server=createServer(async(req,res)=>{
   res.setHeader("Content-Type","application/json");
   res.setHeader("X-Supabase-Api-Version","2024-01-01");
@@ -48,7 +54,17 @@ const server=createServer(async(req,res)=>{
     const account=accounts.get(input.email);
     return account?.password===input.password ? send(200,issue(account)) : send(400,{code:"invalid_credentials",msg:"Test sign-in failed"});
   }
-  if(url.pathname==="/rest/v1/projects")return send(200,[]);
+  if(url.pathname==="/rest/v1/projects") {
+    const project=account ? projectFor(account) : null;
+    const matches=project && (!url.searchParams.has("id") || url.searchParams.get("id")==="eq."+project.id);
+    return send(200,matches ? [url.searchParams.get("select")==="current_revision_id" ? {current_revision_id:project.current_revision_id} : project] : []);
+  }
+  if(url.pathname==="/rest/v1/revisions") {
+    const project=account ? projectFor(account) : null;
+    const matches=project && url.searchParams.get("id")==="eq."+project.current_revision_id && url.searchParams.get("project_id")==="eq."+project.id;
+    return send(200,matches ? [{title:project.title,theme:project.theme,
+      icon_svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#8acfb5"/><circle cx="256" cy="256" r="140" fill="#fff"/></svg>'}] : []);
+  }
   // Keep this double on the older schema to exercise compatibility during rollout.
   if(url.pathname==="/rest/v1/rpc/published_games")return send(200,{games:[{
     id:"60000000-0000-4000-8000-000000000001",revisionId:"60000000-0000-4000-8000-000000000002",

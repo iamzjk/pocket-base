@@ -1,4 +1,11 @@
 import { test, expect, type Page } from "@playwright/test";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { AuthForm } from "../../src/components/auth-form";
+import { PocketMark } from "../../src/components/artwork";
 
 const base="http://127.0.0.1:3218";
 async function captcha(page: Page) {
@@ -84,4 +91,46 @@ test("account forms fit narrow phones and rejected token handoffs never sign in"
   expect(denied.headers()["set-cookie"]).toBeUndefined();
   expect((await request.post(base+"/api/auth",{headers:{Origin:"https://other.example"},data:{action:"session",accessToken:"forged",refreshToken:"forged"}})).status()).toBe(403);
   expect((await request.get(base+"/api/profile")).status()).toBe(401);
+});
+
+test("signed-in Supabase sessions load private studio logos through the image endpoint", async ({ page, request }) => {
+  await captcha(page); await page.goto(base + "/account");
+  await page.getByLabel("Email", { exact: true }).fill("existing@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("fictional-password");
+  await page.getByRole("button", { name: "Complete security check" }).click();
+  await page.getByRole("button", { name: "Open my studio" }).click();
+  await expect(page).toHaveURL(base + "/");
+  const image = page.getByRole("button", { name: "Open Fictional account logo game", exact: true }).locator("img");
+  await image.scrollIntoViewIfNeeded();
+  await expect.poll(() => image.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth === 192)).toBe(true);
+  const url = base + await image.getAttribute("src");
+  const icon = await page.request.get(url);
+  expect(icon.status()).toBe(200);
+  expect(icon.headers()["content-type"]).toBe("image/png");
+  expect(icon.headers()["cache-control"]).toBe("private, no-store");
+  expect((await request.get(url)).status()).toBe(401);
+  expect((await page.request.get(base + "/api/projects/60000000-0000-4000-8000-000000000099/icon")).status()).toBe(404);
+});
+
+test("sign-in-only layout has no redundant selector and fits phones and desktop", async ({ page }) => {
+  // Render the real component with pending CAPTCHA configuration for a layout-only fixture.
+  const stylesheet = await readFile(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const markup = renderToStaticMarkup(createElement("main", { className: "account-page" },
+    createElement("a", { className: "brand", href: "/", "aria-label": "Pocket Base home" },
+      createElement(PocketMark), createElement("span", null, "pocket", createElement("span", { className: "brand-light" }, "base"))),
+    createElement(AuthForm, { config: { url: "http://127.0.0.1:3219", key: "fictional-key" } })));
+  await page.setContent('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>'
+    + stylesheet + '</style></head><body>' + markup + '</body></html>');
+  await expect(page.getByRole("group", { name: "Account access" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Welcome to your studio" })).toBeVisible();
+  await page.getByLabel("Email", { exact: true }).fill("fictional-creator@example.test");
+  await page.getByLabel("Password", { exact: true }).fill("fictional-password");
+  const evidence = process.env.AGENT_DESK_EVIDENCE_DIR || path.join(os.tmpdir(), "pocket-base-evidence");
+  await mkdir(evidence, { recursive: true });
+  for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 1440, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.getByRole("button", { name: "Open my studio" })).toBeVisible();
+    await page.screenshot({ path: path.join(evidence, "account-signin-" + viewport.width + ".png"), fullPage: true });
+  }
 });
