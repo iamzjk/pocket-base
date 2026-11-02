@@ -41,8 +41,9 @@ export async function requireStore(request: Request) {
   if (!ctx.store) throw new StudioError(ctx.configured ? "Ask a grown-up to sign in to your studio." : "A grown-up needs to finish setting up this studio.", ctx.configured ? 401 : 503);
   return ctx.store;
 }
-export async function publicStore(request: Request): Promise<Store> {
-  if (demoAllowed(request.headers.get("host") || new URL(request.url).host)) return new DemoStore();
+export async function publicStore(request?: Request): Promise<Store> {
+  const host = request ? request.headers.get("host") || new URL(request.url).host : (await headers()).get("host") || "";
+  if (demoAllowed(host)) return new DemoStore();
   const config = supabaseConfig();
   if (!config) throw new StudioError("This studio is still getting ready. Try again later.", 503);
   return new SupabaseStore(createClient(config.url, config.key, { auth: { persistSession: false, autoRefreshToken: false } }));

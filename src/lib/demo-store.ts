@@ -2,20 +2,13 @@ import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { StudioError } from "./errors";
-import { starters, starterIds } from "./starters";
-import type { Project, Revision, SaveInput, Store, ProjectDetail, PublicGame } from "./types";
+import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary } from "./types";
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
 interface State { projects: Project[]; revisions: Revision[]; attempts: { id: string; ownerId: string; at: string; finished: boolean }[] }
 const globalQueue = globalThis as typeof globalThis & { pocketQueue?: Promise<unknown> };
 export function initialState(): State {
-  const now = new Date().toISOString();
-  const projects = starters.map((game, i) => ({
-    id: starterIds[i], ownerId: DEMO_OWNER, title: game.title, description: game.description, theme: game.theme,
-    currentRevisionId: "20000000-0000-4000-8000-00000000000" + (i + 1),
-    publishedRevisionId: "20000000-0000-4000-8000-00000000000" + (i + 1), createdAt: now, updatedAt: now,
-  }));
-  return { projects, revisions: projects.map((p, i) => ({ ...starters[i], id: p.currentRevisionId, projectId: p.id, prompt: "A fictional starter game.", createdAt: now })), attempts: [] };
+  return { projects: [], revisions: [], attempts: [] };
 }
 export class DemoStore implements Store {
   constructor(private ownerId = DEMO_OWNER, private directory = process.env.POCKET_BASE_DATA_DIR || path.join(process.cwd(), ".local")) {}
@@ -60,7 +53,8 @@ export class DemoStore implements Store {
       if (input.projectId && p.currentRevisionId !== input.baseRevisionId)
         throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
       if (!input.projectId) s.projects.push(p);
-      const r: Revision = { ...input, id: randomUUID(), projectId: p.id, createdAt: now };
+      const previous = s.revisions.find(r => r.id === p.currentRevisionId && r.projectId === p.id);
+      const r: Revision = { ...input, iconSvg: previous?.iconSvg || input.iconSvg || null, id: randomUUID(), projectId: p.id, createdAt: now };
       s.revisions.push(r);
       Object.assign(p, { title: r.title, description: r.description, theme: r.theme, currentRevisionId: r.id, updatedAt: now });
       return this.view(s, p);
@@ -96,7 +90,19 @@ export class DemoStore implements Store {
     return this.transaction(s => {
       const p = s.projects.find(p => p.id === id);
       const r = p && s.revisions.find(r => r.id === p.publishedRevisionId && r.projectId === p.id);
-      return p && r ? { id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, html: r.html } : null;
+      return p && r ? { id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, html: r.html, iconSvg: r.iconSvg || null } : null;
+    });
+  }
+  async publishedGames(offset = 0): Promise<GameLibrary> {
+    return this.transaction(s => {
+      const published = s.projects.flatMap(p => {
+        const r = s.revisions.find(r => r.id === p.publishedRevisionId && r.projectId === p.id);
+        return r ? [{ id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, createdAt: r.createdAt }] : [];
+      }).sort((a,b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+      return {
+        games: published.slice(offset, offset + LIBRARY_PAGE_SIZE).map(({ createdAt: _date, ...game }) => game),
+        hasMore: published.length > offset + LIBRARY_PAGE_SIZE,
+      };
     });
   }
 }

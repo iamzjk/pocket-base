@@ -7,6 +7,7 @@ export interface Revision {
   description: string;
   theme: Theme;
   html: string;
+  iconSvg?: string | null;
   prompt: string;
   createdAt: string;
 }
@@ -29,12 +30,17 @@ export interface PublicGame {
   description: string;
   theme: Theme;
   html: string;
+  iconSvg?: string | null;
 }
+export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme">;
+export interface GameLibrary { games: PublishedGame[]; hasMore: boolean }
+export const LIBRARY_PAGE_SIZE = 24;
 export interface GeneratedGame {
   title: string;
   description: string;
   theme: Theme;
   html: string;
+  iconSvg?: string | null;
 }
 export interface SaveInput extends GeneratedGame {
   projectId?: string;
@@ -50,4 +56,5 @@ export interface Store {
   reserveGeneration(): Promise<string>;
   finishGeneration(id: string): Promise<void>;
   publicGame(id: string): Promise<PublicGame | null>;
+  publishedGames(offset?: number): Promise<GameLibrary>;
 }

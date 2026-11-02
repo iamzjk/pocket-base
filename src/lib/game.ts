@@ -1,5 +1,6 @@
 import { parse } from "acorn";
 import { parse as parseHTML, serialize } from "parse5";
+import { sanitizeIconSvg, fallbackIconSvg } from "./icon";
 import { StudioError } from "./errors";
 import { themes, type GeneratedGame } from "./types";
 
@@ -7,7 +8,7 @@ import { themes, type GeneratedGame } from "./types";
 export function validateGame(value: unknown): GeneratedGame {
   if (!value || typeof value !== "object") throw new StudioError("The game maker returned an incomplete game. Try again.", 502);
   const game = value as Record<string, unknown>;
-  if (typeof game.html !== "string" || game.html.length < 100 || Buffer.byteLength(game.html) > 200_000)
+  if (typeof game.html !== "string" || game.html.length < 100 || Buffer.byteLength(game.html) > 1_000_000)
     throw new StudioError("This game is too big or incomplete. Try a smaller idea.", 502);
   if (typeof game.title !== "string" || !game.title.trim() || game.title.length > 70)
     throw new StudioError("The game maker forgot the game's name. Try again.", 502);
@@ -38,11 +39,14 @@ export function validateGame(value: unknown): GeneratedGame {
   }
   visit(tree);
   if (!scriptCount) throw new StudioError("The game maker returned a picture instead of a playable game. Try again.", 502);
+  const html = serialize(tree);
+  if (Buffer.byteLength(html) > 1_000_000) throw new StudioError("This game exceeds the saved-game size limit. Your previous version is safe.", 502);
   return {
     title: game.title.trim(),
     description: typeof game.description === "string" ? game.description.slice(0, 200) : "A little game made in Pocket Base.",
     theme: themes.includes(game.theme as GeneratedGame["theme"]) ? game.theme as GeneratedGame["theme"] : "cosmic",
-    html: serialize(tree),
+    html,
+    iconSvg: sanitizeIconSvg(game.iconSvg) || fallbackIconSvg(game.title.trim(), themes.includes(game.theme as GeneratedGame["theme"]) ? game.theme as GeneratedGame["theme"] : "cosmic"),
   };
 }
 export function parseGeneration(text: string): GeneratedGame {

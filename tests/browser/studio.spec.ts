@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { DemoStore, DEMO_OWNER } from "../../src/lib/demo-store";
-import { starters, starterIds } from "../../src/lib/starters";
+import { starters, starterIds } from "../fixtures/games";
 import { PLAYER_VERSION } from "../../src/lib/pwa";
 
 function store() { return new DemoStore(DEMO_OWNER, process.env.POCKET_BASE_E2E_DATA_DIR); }
@@ -13,6 +13,7 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: path.join(evidence, name + ".png"), fullPage: true });
 }
 test("phone and desktop builder: play, preserve failed edits, publish, and unpublish", async ({ page, request }) => {
+  await store().save({ ...starters[1], title: "Phone memory fixture", prompt: "Fictional private test game." });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Imagine it. Make it yours." })).toBeVisible();
@@ -23,7 +24,7 @@ test("phone and desktop builder: play, preserve failed edits, publish, and unpub
   await page.setViewportSize({ width: 320, height: 740 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole("button", { name: "Start with Matcha Match", exact: true }).click();
+  await page.getByRole("button", { name: "Edit Phone memory fixture", exact: true }).click();
   await expect(page).toHaveURL(/\?game=/);
   const id = new URL(page.url()).searchParams.get("game")!;
   const frame = page.frameLocator("iframe");
@@ -45,12 +46,12 @@ test("phone and desktop builder: play, preserve failed edits, publish, and unpub
   await expect(page.getByLabel("Your public play link")).toHaveValue(new RegExp("/play/" + id + "/$"));
   const publicGame = await (await request.get("/play/" + id + "/game.json")).json();
   expect(publicGame.revisionId).toBe(before.currentRevisionId);
-  expect(Object.keys(publicGame).sort()).toEqual(["description","html","id","revisionId","theme","title"].sort());
+  expect(Object.keys(publicGame).sort()).toEqual(["description","html","iconSvg","id","revisionId","theme","title"].sort());
   await page.locator("summary").filter({ hasText: "Take this game offline" }).click();
   await page.getByRole("button", { name: "Unpublish game" }).click();
   await expect(page.getByRole("button", { name: "Publish my game" })).toBeVisible();
   expect((await request.get("/play/" + id + "/game.json")).status()).toBe(404);
-  const csrf = await request.post("/api/projects", { data: { starter: "stars" }, headers: { origin: "https://other.example" } });
+  const csrf = await request.post("/api/generate", { data: { prompt: "Fictional cross-origin game" }, headers: { origin: "https://other.example" } });
   expect(csrf.status()).toBe(403);
 });
 
@@ -117,6 +118,14 @@ test("publishing updates requires no deployment and incomplete downloads retain 
   await expect.poll(() => interrupted).toBeGreaterThan(0);
   await expect(page.getByRole("button", { name: "Update & restart" })).toBeHidden();
   await context.unroute("**/icons/512.png");
+  // Exercise going online before offline startup finishes registering its worker.
+  await page.addInitScript(() => {
+    const original = navigator.serviceWorker.getRegistration.bind(navigator.serviceWorker);
+    navigator.serviceWorker.getRegistration = async (...args) => {
+      if (!navigator.onLine) await new Promise(resolve => setTimeout(resolve,250));
+      return original(...args);
+    };
+  });
   await context.setOffline(true);
   await page.reload();
   await expect(page.frameLocator("iframe").getByRole("heading", { name: "Star Catcher" })).toBeVisible();
@@ -156,6 +165,8 @@ test("create, revise, restore, and republish through the complete API with a fic
   await page.getByRole("button", { name: "Make it", exact: true }).click();
   await expect(page).toHaveURL(/\?game=/);
   const id = new URL(page.url()).searchParams.get("game")!;
+  const originalLogo = (await (await request.get("/api/projects/" + id)).json()).revisions[0].iconSvg;
+  expect(originalLogo).toContain("#9ed9c7");
   await expect(page.frameLocator("iframe").getByRole("button", { name: "Pop a moon bubble" })).toBeVisible();
   await page.frameLocator("iframe").getByRole("button", { name: "Pop a moon bubble" }).click();
   await expect(page.frameLocator("iframe").getByText("Popped 1")).toBeVisible();
@@ -163,6 +174,8 @@ test("create, revise, restore, and republish through the complete API with a fic
   await page.getByLabel("Describe a change to your game").fill("Make the bubbles rainbow");
   await page.getByRole("button", { name: "Make this change" }).click();
   await expect(page.frameLocator("iframe").getByRole("button", { name: "Pop a rainbow bubble" })).toBeVisible();
+  const revisedGame = await (await request.get("/api/projects/" + id)).json();
+  expect(revisedGame.revisions.find((r: { id: string }) => r.id === revisedGame.currentRevisionId).iconSvg).toBe(originalLogo);
   await page.getByRole("button", { name: "Versions" }).click();
   await page.locator(".version-row").filter({ hasText: "A little bubble game" }).getByRole("button", { name: "Restore" }).click();
   await expect(page.frameLocator("iframe").getByRole("button", { name: "Pop a moon bubble" })).toBeVisible();
@@ -181,7 +194,7 @@ test("create, revise, restore, and republish through the complete API with a fic
   expect((await (await request.get("/play/" + id + "/game.json")).json()).html).toContain("Pop a rainbow bubble");
 });
 
-test("all five starters respond to touch and remain usable after phone rotation", async ({ browser }) => {
+test("all five game fixtures respond to touch and remain usable after phone rotation", async ({ browser }) => {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const page = await context.newPage();
   try {
@@ -232,6 +245,7 @@ test("all five starters respond to touch and remain usable after phone rotation"
 });
 
 test("studio controls remain reachable across phone sizes, rotation, and keyboard resizing", async ({ browser }) => {
+  await store().save({ ...starters[1], title: "Mobile memory fixture", prompt: "Fictional mobile test game." });
   const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
   async function fits() {
@@ -251,7 +265,7 @@ test("studio controls remain reachable across phone sizes, rotation, and keyboar
     await page.goto("http://127.0.0.1:3217/");
     await touchTargets();
     // Open from well down the page: the editor must reset the document scroll.
-    await page.getByRole("button", { name: "Start with Matcha Match", exact: true }).tap();
+    await page.getByRole("button", { name: "Edit Mobile memory fixture", exact: true }).tap();
     const card = page.frameLocator("iframe").getByRole("button", { name: "Reveal card 1", exact: true });
     await card.tap(); await expect(card).not.toHaveText("✦");
     for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 390, height: 440 }]) {
@@ -407,4 +421,59 @@ test("a frame that never starts shows a timeout and a retry action", async ({ pa
   await page.clock.fastForward(13_000);
   await expect(page.getByRole("alert").filter({ hasText: "taking too long to start" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
+});
+
+test("the shared game library shows other owners' published versions and refreshes on unpublish", async ({ page, request }) => {
+  const db = new DemoStore("00000000-0000-4000-8000-000000000088", process.env.POCKET_BASE_E2E_DATA_DIR);
+  const game = await db.save({ ...starters[1], title: "Community garden fixture", prompt: "PRIVATE community prompt" });
+  await db.select(game.id, game.currentRevisionId, "publish");
+  await db.save({ ...starters[1], title: "PRIVATE community draft", description: "PRIVATE draft description", projectId: game.id, baseRevisionId: game.currentRevisionId, prompt: "PRIVATE edit" });
+  await db.save({ ...starters[0], title: "PRIVATE community unpublished", prompt: "PRIVATE idea" });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/library");
+  const library = page.getByRole("region", { name: "Game library" });
+  await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toBeVisible();
+  await expect(page.getByText("v1.0.0", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Start with / })).toHaveCount(0);
+  expect((await page.content()).includes("PRIVATE community")).toBe(false);
+  const result = await (await request.get("/api/library")).json();
+  const listed = result.games.find((g: { id: string }) => g.id === game.id);
+  expect(Object.keys(listed).sort()).toEqual(["description","id","revisionId","theme","title"]);
+  expect(listed.title).toBe("Community garden fixture"); expect(listed.revisionId).toBe(game.currentRevisionId);
+  expect((await request.get("/api/projects/" + game.id)).status()).toBe(404);
+  expect((await request.post("/api/projects", { data: { starter: "stars" } })).status()).toBe(405);
+  await library.getByRole("link", { name: "Play Community garden fixture", exact: true }).click();
+  await expect(page.frameLocator("iframe").getByRole("heading", { name: "Matcha Match" })).toBeVisible();
+  await db.unpublish(game.id);
+  await page.goto("/library");
+  await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toHaveCount(0);
+  await db.select(game.id, game.currentRevisionId, "publish");
+  await library.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toBeVisible();
+  for (const viewport of [{ width: 320, height: 568 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await screenshot(page, "library-" + viewport.width);
+  }
+});
+
+test("the game library paginates and recovers from refresh errors", async ({ page, request }) => {
+  const db = new DemoStore("00000000-0000-4000-8000-000000000089", process.env.POCKET_BASE_E2E_DATA_DIR);
+  for (let i=0;i<25;i++) {
+    const game = await db.save({ ...starters[0], title: "Library page fixture " + i, prompt: "Fictional public listing." });
+    await db.select(game.id, game.currentRevisionId, "publish");
+  }
+  await page.goto("/library");
+  const library = page.getByRole("region", { name: "Game library" });
+  await library.getByRole("button", { name: "Show more games", exact: true }).click();
+  await expect(library.getByRole("link", { name: /^Play Library page fixture / })).toHaveCount(25);
+  await page.route("**/api/library?offset=0", route => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Fictional library connection failure." }) }));
+  await library.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(library.getByRole("alert")).toContainText("Fictional library connection failure");
+  await expect(library.getByRole("link", { name: /^Play Library page fixture / })).toHaveCount(25);
+  await page.unroute("**/api/library?offset=0");
+  await library.getByRole("button", { name: "Refresh", exact: true }).click();
+  await expect(library.getByRole("alert")).toHaveCount(0);
+  await expect(library.locator(".published-card")).toHaveCount(24);
+  for (const offset of ["-1","bad","2147483648"]) expect((await request.get("/api/library?offset=" + offset)).status()).toBe(400);
 });

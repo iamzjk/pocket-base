@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { validateGame, parseGeneration } from "../src/lib/game";
-import { starters, starterIds } from "../src/lib/starters";
+import { starters, starterIds } from "./fixtures/games";
 import { gameManifest, playerDocument } from "../src/lib/pwa";
 import { sandboxDocument } from "../public/sandbox.js";
 import { demoAllowed } from "../src/lib/auth";
-test("all five fictional starters contain syntactically valid, self-contained games", () => {
+test("all five fictional game fixtures contain syntactically valid, self-contained games", () => {
   for (const starter of starters) {
     const game = validateGame(starter);
     assert.equal(game.title, starter.title);

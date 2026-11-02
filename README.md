@@ -13,7 +13,7 @@ Requires Node.js 22+ and npm. The entire application uses TypeScript/JavaScript;
 3. Run `npm run dev`.
 4. Open http://127.0.0.1:3000.
 
-The explicit local playground has five fictional, playable starter games. It supports saving starters, publishing, version history, installation, and offline play without cloud credentials. AI requests report that the game maker needs connecting; sample games are never passed off as AI-generated output.
+New local studios start empty. Connect the game maker to create games; publishing, version history, installation, and offline play use local storage in playground mode. The old example games live only in explicit test fixtures and are not supplied by the app.
 
 Playground data is stored in ignored `.local/demo.json`. Set `POCKET_BASE_DATA_DIR` to use disposable state. Playground access requires `POCKET_BASE_DEMO=true`, a loopback hostname, and no Vercel runtime. It cannot enable anonymous builder access on Vercel.
 
@@ -35,7 +35,7 @@ Playground data is stored in ignored `.local/demo.json`. Set `POCKET_BASE_DATA_D
 
 For separate private accounts, create more users in that dashboard. Each account owns separate projects and revisions. There is no public signup or team collaboration UI.
 
-No Supabase service-role key is required by the app. PostgreSQL row-level security and ownership-checked functions protect private records. Public access returns only the published game's title, description, theme, source, and revision identity. Drafts and prompts stay private.
+No Supabase service-role key is required by the app. PostgreSQL row-level security and ownership-checked functions protect private records. Public play access returns only the published game's title, description, theme, source, and revision identity. The public library returns published metadata across all accounts, without source, owner IDs, or account information. Drafts and prompts stay private.
 
 Migration checks target the hosted project in `NEXT_PUBLIC_SUPABASE_URL`. An up-to-date database needs no admin token. Pending migrations without `SUPABASE_ACCESS_TOKEN` stop startup with setup instructions instead of consulting saved credentials. Failed migrations also stop startup. Disposable playground mode skips cloud setup.
 
@@ -44,13 +44,13 @@ Migration checks target the hosted project in `NEXT_PUBLIC_SUPABASE_URL`. An up-
 `OPENROUTER_MODEL` supports these explicit choices:
 
 - `openrouter/free`, or a model ID ending in `:free`: provider prompt and completion prices are capped at zero.
-- `deepseek/deepseek-v4.1-flash` (default): a paid coding option, capped at **$0.30 input and $1.20 output per million tokens**. Requests prefer cheaper eligible providers, disable optional reasoning, and allow at most 10,000 generated tokens. If no provider fits those caps, the request stops.
+- `deepseek/deepseek-v4.1-flash` (default): a paid coding option, capped at **$0.30 input and $1.20 output per million tokens**. Requests prefer cheaper eligible providers, use low reasoning, and allow at most 100,000 output tokens (including reasoning). If no provider fits those caps, the request stops.
 
 No model automatically falls back to a different or more expensive model. Select a model through `OPENROUTER_MODEL` in `.env.local` or Vercel; DeepSeek uses the existing OpenRouter key and account credits. At the rate caps, an illustrative 2,000-input / 5,000-output token request costs $0.0066. Longer games and revision prompts use more tokens. Playing a finished game uses no inference. Rate caps and attempt limits are not a monthly spending cap; use an OpenRouter key budget for a fixed account spending allowance.
 
 The app reserves attempts transactionally in PostgreSQL before calling OpenRouter: **20 attempts per account per UTC day, 40 across the app, and one active generation per account**. Failed attempts count. A five-minute lease prevents abandoned requests from locking an account indefinitely. These conservative limits do not replace OpenRouter's own account/provider limits.
 
-Each create/edit uses a single model request, with no automatic retry loop. Finished games run locally in the browser and use no inference.
+Initial creation and edits use separate, concise instructions. Each request asks for a short game-specific design brief before the code and uses low reasoning on DeepSeek. Edits include the complete current HTML/CSS/JavaScript; they do not include all historical versions or ask for a new logo. Each create/edit uses a single model request, with no automatic retry loop. Finished games run locally in the browser and use no inference.
 
 Generation instructions leave each new game's art direction, layout, and mechanics to the model and the user's preferences. The five `theme` values choose library cover artwork; they do not restrict the in-game palette or visual style. Short prompts receive a focused interpretation, with no mandatory scoring, levels, or timers. Edits preserve the existing game's identity unless the requested change calls for a redesign. These instructions encourage variety; live output comparisons are needed to assess how well a model follows them.
 
@@ -70,9 +70,17 @@ The generation route configures `maxDuration=300` and times out inference after 
 
 Vercel Hobby is for personal, noncommercial projects and has resource limits. Supabase Free can pause projects after a week of inactivity; restore a paused project in its dashboard. Existing downloaded games can still play offline. Provider allowances can change.
 
+## Public game library
+
+Anyone can browse the **Game library** view at `/library` and play published games without signing in. Sign-in is required to create, edit, or publish. Publishing makes a game discoverable across all users; unpublishing removes it from new library requests. The list reads the published revision, so subsequent private draft edits do not change the public title, description, or artwork until republished.
+
+The header links to **My studio** and **Game library** as separate views. The library loads 24 games at a time, with **Show more games** to continue through all published games and **Refresh** to fetch the current list. `/api/library?offset=0` provides the same public metadata. New studios receive no default games; existing user creations are retained. The home-page footer displays the version from `package.json`.
+
 ## Publishing and installation
 
 Public game URLs are `/play/<game-id>/`. Republish keeps the URL and manifest identity stable. Draft edits do not change a published game until that revision is published.
+
+New games include a model-designed SVG logo in the same generation response. The server accepts a restricted vector-only SVG subset (up to 30KB), rejects external resources and executable markup, and renders it into PNG install icons. Invalid icons fall back to a simple generated mark. Game edits preserve the stored logo in application and database code, even if the model returns a replacement. Legacy games retain their existing icon style.
 
 Each game has its own manifest, 192px/512px install icons, Apple touch icon, standalone player, and narrowly scoped service-worker registration. Multiple games can be installed separately from the same deployment.
 
@@ -86,7 +94,7 @@ Scores and supported progress are device-local and isolated by game. There is no
 
 ## Game boundary
 
-Games use self-contained HTML/CSS/plain JavaScript. External packages, backend execution, multiplayer, integrations, and image generation are deferred.
+Games use self-contained HTML/CSS/plain JavaScript. External packages, backend execution, multiplayer, integrations, and raster image generation are deferred. Games may contain up to 1MB of source.
 
 The trusted player runs generated code in an iframe with only `allow-scripts`, without `allow-same-origin`. A restrictive content security policy blocks fetch, workers, nested frames, and outside resources. Source is parsed and script syntax checked before saving. Game source is served as JSON and never inserted into the top-level builder or player document.
 

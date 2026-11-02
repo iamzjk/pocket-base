@@ -19,7 +19,7 @@ export async function POST(request: Request) {
       if (project.currentRevisionId !== baseRevisionId) throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
       previous = project.revisions.find(r => r.id === baseRevisionId);
     }
-    if (!process.env.OPENROUTER_API_KEY) throw new StudioError("AI game-making isn't connected yet. Ask a grown-up to connect it; you can still play the starter games.", 503);
+    if (!process.env.OPENROUTER_API_KEY) throw new StudioError("AI game-making isn't connected yet. Ask a grown-up to connect it; you can still play published games in the library.", 503);
     generationModel();
     const attempt = await store.reserveGeneration();
     try {

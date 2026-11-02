@@ -13,6 +13,7 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
       ';font:18px system-ui;color:#30213f}button{font:inherit;padding:20px;border:0;border-radius:20px;background:#faf8f2;touch-action:manipulation}</style></head><body><h1>Moon Bubbles</h1><button id="pop">' +
       (updated ? "Pop a rainbow bubble" : "Pop a moon bubble") + '</button><p id="score">Popped 0</p><script>let score=0;document.getElementById("pop").onclick=()=>{score++;document.getElementById("score").textContent="Popped "+score;};</script></body></html>';
     return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({
+      iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="' + color + '"/><circle cx="256" cy="256" r="100" fill="#fff"/></svg>',
       title: "Moon Bubbles", description: updated ? "A fictional updated game for browser testing." : "A fictional first game for browser testing.", theme: updated ? "lilac" : "mint", html,
     }) } }] });
   };

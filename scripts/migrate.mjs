@@ -35,7 +35,7 @@ export async function runMigrations(options = {}) {
   const env = options.env || await projectEnvironment(root, mode);
   const log = options.log || console.log;
   if (mode !== "migrate" && env.POCKET_BASE_DEMO === "true" && !env.VERCEL) {
-    log("Database: local starter playground; cloud migrations skipped.");
+    log("Database: local playground; cloud migrations skipped.");
     return { skipped: true, reason: "demo" };
   }
   if (!env.NEXT_PUBLIC_SUPABASE_URL || !env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {

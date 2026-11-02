@@ -6,7 +6,7 @@ const dataDir = process.env.POCKET_BASE_E2E_DATA_DIR || path.join(os.tmpdir(), "
 process.env.POCKET_BASE_E2E_DATA_DIR = dataDir;
 const chrome = process.env.CHROME_PATH || (existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome") ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : undefined);
 export default defineConfig({
-  testDir: "./tests/browser", timeout: 60_000, expect: { timeout: 15_000 }, fullyParallel: false, workers: 1,
+  testDir: "./tests/browser", globalSetup: "./tests/fixtures/browser-setup.ts", timeout: 60_000, expect: { timeout: 15_000 }, fullyParallel: false, workers: 1,
   use: { baseURL: "http://127.0.0.1:3217", headless: true,
     launchOptions: chrome ? { executablePath: chrome } : {},
     trace: "retain-on-failure", screenshot: "only-on-failure" },

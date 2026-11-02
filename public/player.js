@@ -1,13 +1,13 @@
-import { startGame } from "/sandbox.js?v=3";
+import { startGame } from "/sandbox.js?v=5";
 
-const PLAYER_VERSION = "3";
+const PLAYER_VERSION = "5";
 const gameId = document.body.dataset.gameId;
 const base = "/play/" + gameId + "/";
 const stage = document.getElementById("stage");
 const status = document.getElementById("offline-state");
 const help = document.getElementById("install-help");
 let currentGame, registration, installPrompt, detach, pendingRevision, previousFocus, checking = false;
-let playingOffline = false, downloaded = false;
+let playingOffline = false, downloaded = false, updateRetryUsed = false;
 function showStatus(text, ready = false) { status.textContent = text; status.classList.toggle("ready", ready); }
 function render(game) {
   if (detach) detach();
@@ -52,7 +52,7 @@ async function prepareOffline() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(base);
     registration = existing?.active && existing.scope === new URL(base, location.href).href
-      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=3", { scope: base });
+      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=5", { scope: base });
     if (navigator.onLine) await registration.update().catch(() => {});
     if (registration.installing || registration.waiting || !registration.active) {
       await new Promise((resolve, reject) => {
@@ -80,6 +80,15 @@ async function checkUpdate() {
     const response = await fetch(base + "game.json", { cache: "no-store" });
     if (response.status === 404) { showStatus("This game is no longer published"); return; }
     if (!response.ok) return;
+    if (response.headers.get("X-Pocket-Offline") === "1") {
+      playingOffline = true; downloaded = true; showStatus("Playing offline", true);
+      // A browser can report online before its first network request succeeds.
+      if (navigator.onLine && !updateRetryUsed) {
+        updateRetryUsed = true; setTimeout(checkUpdate, 1000);
+      }
+      return;
+    }
+    playingOffline = false; updateRetryUsed = false;
     const latest = await response.json();
     if (latest.revisionId === currentGame.revisionId) {
       const meta = await talk("STATUS");
@@ -131,7 +140,7 @@ help.addEventListener("keydown", e => {
     else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   }
 });
-window.addEventListener("online", checkUpdate);
+window.addEventListener("online", () => { updateRetryUsed = false; void checkUpdate(); });
 window.addEventListener("offline", () => showStatus(downloaded ? "Playing offline" : "Go online to finish downloading", downloaded));
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkUpdate(); });
 (async () => {
@@ -141,6 +150,8 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) chec
     playingOffline = response.headers.get("X-Pocket-Offline") === "1";
     render(await response.json());
     await prepareOffline();
+    // Online can arrive while registration is still being initialized.
+    if (playingOffline && navigator.onLine) await checkUpdate();
   } catch (error) {
     const message = document.createElement("p"); message.className = "loading"; message.textContent = error.message;
     stage.replaceChildren(message); showStatus("Couldn't open this game");

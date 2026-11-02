@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generationModel, generateGame } from "../src/lib/generate";
-import { starters } from "../src/lib/starters";
+import { generationModel, generateGame, MAX_GENERATION_TOKENS } from "../src/lib/generate";
+import { starters } from "./fixtures/games";
 test("free model requests enforce zero-price providers", async () => {
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, fetchOriginal = globalThis.fetch;
   try {
@@ -32,7 +32,7 @@ test("free model requests enforce zero-price providers", async () => {
   }
 });
 
-test("DeepSeek is explicit, price capped, and uses no model fallback or extra reasoning", async () => {
+test("DeepSeek is explicit, price capped, and uses low reasoning without model fallback", async () => {
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, originalFetch = globalThis.fetch;
   try {
     delete process.env.OPENROUTER_MODEL;
@@ -47,8 +47,8 @@ test("DeepSeek is explicit, price capped, and uses no model fallback or extra re
       assert.deepEqual(body.provider.max_price, { prompt: 0.30, completion: 1.20 });
       assert.equal(body.provider.sort, "price");
       assert.equal(body.provider.require_parameters, true);
-      assert.deepEqual(body.reasoning, { enabled: false });
-      assert.equal(body.max_tokens, 10_000);
+      assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
+      assert.equal(body.max_tokens, MAX_GENERATION_TOKENS);
       assert.equal(body.models, undefined);
       return Response.json({ choices: [{ message: { content: JSON.stringify(starters[0]) }, finish_reason: "stop" }] });
     };
@@ -106,5 +106,35 @@ test("provider failures explain the problem without leaking upstream data or ret
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = originalKey;
     if (originalModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});
+
+test("new games plan and create an SVG icon while edits preserve the stored icon", async () => {
+  const model = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, originalFetch = globalThis.fetch;
+  const firstIcon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#123456"/></svg>';
+  const changedIcon = firstIcon.replace('#123456','#abcdef');
+  try {
+    process.env.OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash"; process.env.OPENROUTER_API_KEY = "fictional-test-key";
+    const requests: { messages: { content: string }[]; max_tokens: number }[] = [];
+    globalThis.fetch = async (_url,init) => {
+      requests.push(JSON.parse(String(init?.body)));
+      return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ ...starters[0], designBrief: "A fictional focused design.", iconSvg: requests.length === 1 ? firstIcon : changedIcon }) } }] });
+    };
+    const created = await generateGame("A fictional new game"); assert.ok(created.iconSvg?.includes('#123456'));
+    const previous = { ...created, id: "r1", projectId: "p1", prompt: "Fictional", createdAt: new Date().toISOString() };
+    const edited = await generateGame("Make the game faster",previous);
+    assert.equal(edited.iconSvg,created.iconSvg);
+    assert.equal(requests.length,2); assert.equal(requests[0].max_tokens,100_000);
+    assert.match(requests[0].messages[0].content,/designBrief/);
+    assert.match(requests[0].messages[0].content,/also return iconSvg/);
+    assert.match(requests[1].messages[0].content,/Omit iconSvg/);
+    assert.ok(requests[1].messages.some(message => message.content.includes(previous.html)));
+    assert.equal(requests[1].messages.some(message => message.content.includes(previous.iconSvg!)),false);
+    globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: "length", message: { content: "incomplete game" } }] });
+    await assert.rejects(generateGame("Fictional long game"),/response limit/);
+  } finally {
+    globalThis.fetch=originalFetch;
+    if(model===undefined)delete process.env.OPENROUTER_MODEL;else process.env.OPENROUTER_MODEL=model;
+    if(key===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=key;
   }
 });

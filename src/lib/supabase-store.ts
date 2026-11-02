@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Project, ProjectDetail, Revision, SaveInput, Store, PublicGame } from "./types";
+import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, type SaveInput, type Store, type PublicGame, type GameLibrary } from "./types";
 import { StudioError } from "./errors";
 
 type Row = Record<string, unknown>;
@@ -13,7 +13,7 @@ function detail(row: Row): ProjectDetail {
   return { ...project(row), revisions: (row.revisions as Row[]).map(r => ({
     id: String(r.id), projectId: String(r.project_id), title: String(r.title),
     description: String(r.description), theme: r.theme as Revision["theme"], html: String(r.html),
-    prompt: String(r.prompt), createdAt: String(r.created_at),
+    prompt: String(r.prompt), iconSvg: typeof r.icon_svg === "string" ? r.icon_svg : null, createdAt: String(r.created_at),
   })) };
 }
 export function databaseError(error: { message: string } | null) {
@@ -40,7 +40,7 @@ export class SupabaseStore implements Store {
   async save(input: SaveInput) {
     const { data, error } = await this.client.rpc("save_game", {
       p_project_id: input.projectId || null, p_base_revision_id: input.baseRevisionId || null,
-      p_title: input.title, p_description: input.description, p_theme: input.theme, p_html: input.html, p_prompt: input.prompt,
+      p_title: input.title, p_description: input.description, p_theme: input.theme, p_html: input.html, p_prompt: input.prompt, p_icon_svg: input.iconSvg || null,
     });
     databaseError(error);
     return detail(data);
@@ -67,5 +67,10 @@ export class SupabaseStore implements Store {
     const { data, error } = await this.client.rpc("public_game", { p_id: id });
     databaseError(error);
     return data || null;
+  }
+  async publishedGames(offset = 0): Promise<GameLibrary> {
+    const { data, error } = await this.client.rpc("published_games", { p_offset: offset, p_limit: LIBRARY_PAGE_SIZE });
+    databaseError(error);
+    return data;
   }
 }

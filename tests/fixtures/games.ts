@@ -1,4 +1,4 @@
-import type { GeneratedGame, Theme } from "./types";
+import type { GeneratedGame } from "../../src/lib/types";
 
 function documentFor(title: string, body: string, code: string, background = "#17152f"): string {
   return '<!doctype html><html><head><title>' + title + '</title><style>' +
@@ -44,9 +44,20 @@ export const starters: (GeneratedGame & { key: string; prompt: string; tag: stri
   { key: "quiz", title: "Wonder Quiz", description: "Big discoveries. Little questions.", theme: "lilac", html: quiz, tag: "Curious minds", prompt: "Make a friendly five-question nature and space quiz for a young child. Give encouraging feedback, big answer buttons, and a final score." },
   { key: "draw", title: "Doodle Garden", description: "Make something wonderfully you.", theme: "peach", html: draw, tag: "Creative play", prompt: "Make a finger-painting toy with a white canvas, five pretty colors, smooth thick brush strokes, and a fresh canvas button." },
 ];
-export const themeColors: Record<Theme, string> = { cosmic: "#8b67d8", mint: "#9ed9c7", peach: "#f2b7a2", lemon: "#dbe989", lilac: "#c8b8ec" };
 export const starterIds = [
   "10000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000002",
   "10000000-0000-4000-8000-000000000003", "10000000-0000-4000-8000-000000000004",
   "10000000-0000-4000-8000-000000000005",
 ];
+
+// Explicit test data only. Production and new local studios start empty.
+export function browserFixtureState() {
+  const at = new Date().toISOString();
+  const projects = starters.map((game, index) => ({
+    id: starterIds[index], ownerId: "00000000-0000-4000-8000-000000000001",
+    title: game.title, description: game.description, theme: game.theme,
+    currentRevisionId: "20000000-0000-4000-8000-00000000000" + (index + 1),
+    publishedRevisionId: "20000000-0000-4000-8000-00000000000" + (index + 1), createdAt: at, updatedAt: at,
+  }));
+  return { projects, revisions: projects.map((p,index) => ({ ...starters[index], id: p.currentRevisionId, projectId: p.id, prompt: "Fictional browser fixture.", createdAt: at })), attempts: [] };
+}

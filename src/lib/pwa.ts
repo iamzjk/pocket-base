@@ -1,5 +1,5 @@
 import type { PublicGame } from "./types";
-export const PLAYER_VERSION = "3";
+export const PLAYER_VERSION = "5";
 export function escapeHTML(value: string) {
   return value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
