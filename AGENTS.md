@@ -1,3 +1,54 @@
+# Pocket Base contributor instructions
+
+Pocket Base is a standalone Next.js App Router application using React, TypeScript, Node.js 22+, Supabase, OpenRouter, and Vercel. Read `README.md` for setup and deployment. Read `package.json` for the current version and commands; the home-page footer derives its version from that file. Keep the root version in `package-lock.json` synchronized when releasing.
+
+## Product and access boundaries
+
+- `/` is My studio. Creating, editing, restoring, and publishing require a signed-in account. Each account owns separate projects and revisions; there is no public signup or shared editing UI.
+- `/library` and `/api/library` are public. Anyone can browse all users' published games and open `/play/<id>/` without signing in. Publishing opts a game into discovery; unpublishing removes it from fresh listings and online play. Previously downloaded games may remain playable offline.
+- Public listings must read the selected **published revision**, not the project's current draft fields. Expose only the listing metadata. Never expose private drafts, prompts, owner IDs, emails, or account details through the library.
+- New studios start empty. Example games exist only in `tests/fixtures/games.ts` and explicit browser-test setup. Do not import or seed those fixtures in application code.
+
+## Code organization
+
+- `src/components/studio-page.tsx`: server-side loading for the studio and library views. `src/components/studio.tsx`: client UI, editor, authentication dialogs, publishing, and version history.
+- `src/lib/auth.ts`: session and anonymous store selection. `src/lib/supabase-store.ts` and `src/lib/demo-store.ts`: matching storage contracts in `src/lib/types.ts`.
+- `src/lib/generate.ts`: model configuration, creation/edit instructions, response budget, and provider error handling. `src/lib/game.ts`: generated-source validation. `src/lib/icon.ts`: SVG validation and fallback icons.
+- `src/lib/pwa.ts`, `public/player.js`, `public/player.css`, `public/game-worker.js`, and `public/sandbox.js`: trusted PWA hosting, offline caching, startup handling, and device-save bridge.
+- `supabase/migrations/`: numbered SQL migrations. `scripts/migrate.mjs`: automatic migration runner.
+
+## Generation and game safety
+
+- Initial creation and edits use separate concise instructions. DeepSeek uses low reasoning and a 100,000-token output allowance, including reasoning. The model supplies a short game-specific design brief and complete game source in one request. Leave creative decisions to the model and user rather than imposing shared visual templates or mandatory game mechanics.
+- Edit requests include the complete current HTML/CSS/JavaScript and latest request, with a base-revision check. Do not send every historical version. Do not add automatic paid retries or model fallbacks; preserve provider price caps and transactional attempt limits unless the task changes them.
+- New games may include an SVG logo. Edits must omit logo generation and keep the stored logo unchanged. Enforce this in the generation path, both stores, and the database save function, rather than relying only on prompt instructions.
+- Treat SVG as untrusted input. Validate the restricted vector subset and rasterize it to PNG with Sharp. Never insert model SVG into the studio DOM or serve it as executable markup. Invalid or legacy icons use the safe fallback. Published icon endpoints must use the published revision.
+- Games are self-contained HTML/CSS/plain JavaScript, up to 1MB. Parse and validate before saving. Execute only inside an opaque iframe with `sandbox="allow-scripts"`, without `allow-same-origin`, under the restrictive game CSP. Do not weaken network, navigation, worker, or parent-page restrictions.
+- Device saves use the trusted `PocketBase` bridge for `progress`, `score`, and `settings`, limited to 16KB per key. Preserve game/channel validation and save isolation. A startup acknowledgement confirms frame loading, not gameplay quality.
+
+## Data, migrations, and publishing
+
+- Hosted data lives in Supabase with RLS and ownership-checked functions. Keep production writes out of Vercel's filesystem. No service-role key belongs in the app runtime.
+- Add a new numbered migration for schema changes; do not rewrite applied migrations. `npm run dev` and `npm run build` check/apply pending migrations automatically. `npm run db:migrate` runs the same process explicitly. Use `SUPABASE_ACCESS_TOKEN` from the server/build environment; never require manual SQL, CLI login, or Keychain access. Preview builds verify readiness without mutating the shared database.
+- Publishing selects a saved revision; it does not create a deployment. Keep game URLs and manifest identities stable across updates. Download every required asset before offering an offline update, and retain the prior release if a download fails.
+- Changes to `public/player.js`, `public/player.css`, or `public/sandbox.js` require a coordinated player asset-version bump in `src/lib/pwa.ts`, `public/game-worker.js`, and `public/player.js`, including versioned imports and worker registration URLs.
+- GitHub Actions runs checks. Vercel's existing Git integration deploys the app; do not add a custom deployment workflow unless requested.
+
+## Local work and verification
+
+Run from the repository root. Use `npm ci` for dependencies and `npm run dev` for local work. Before restarting an existing server, confirm it belongs to Pocket Base and preserve unrelated processes.
+
+For changes that affect behavior, run the relevant checks:
+
+- `npm run typecheck`
+- `npm test` — source/model boundaries, SVG safety, storage behavior, and PostgreSQL migrations in disposable PGlite.
+- `npm run build` — production build and migration readiness.
+- `npm run test:browser` — an isolated server on port 3217 with explicitly seeded fictional games and disposable browser contexts. Use installed Chrome, `CHROME_PATH`, or Playwright Chromium.
+
+Cover phone and desktop layouts, navigation, publish/unpublish, revision changes, startup failures, offline play, and update transitions when touched. Screenshots must use fictional data and temporary profiles. Browser evidence goes to `AGENT_DESK_EVIDENCE_DIR` or the system temporary directory. Browser automation does not prove physical-device home-screen installation or live-model quality.
+
+Keep `.env.local`, `.local/`, `.vercel/`, credentials, sessions, raw private game data, and test artifacts ignored. Never print secrets or use real accounts in routine test screenshots. Routine tests stub OpenRouter; use paid live checks sparingly and only when needed to verify provider behavior. Do not discard unrelated working-tree changes or commit incidental generated type-file churn.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
