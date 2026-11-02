@@ -1,5 +1,6 @@
-import { sandboxDocument, attachGameBridge } from "/sandbox.js?v=1";
+import { startGame } from "/sandbox.js?v=3";
 
+const PLAYER_VERSION = "3";
 const gameId = document.body.dataset.gameId;
 const base = "/play/" + gameId + "/";
 const stage = document.getElementById("stage");
@@ -10,14 +11,25 @@ let playingOffline = false, downloaded = false;
 function showStatus(text, ready = false) { status.textContent = text; status.classList.toggle("ready", ready); }
 function render(game) {
   if (detach) detach();
-  const channel = crypto.randomUUID();
   const frame = document.createElement("iframe");
   frame.title = game.title;
   frame.setAttribute("sandbox", "allow-scripts");
   frame.setAttribute("allow", "camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'");
-  frame.srcdoc = sandboxDocument(game.html, channel);
-  stage.replaceChildren(frame);
-  detach = attachGameBridge(frame, game.id, channel, () => showStatus("Game hiccup? Tap restart."));
+  const notice = document.createElement("div");
+  notice.className = "game-status";
+  const message = document.createElement("p"), retry = document.createElement("button");
+  retry.className = "retry-button"; retry.textContent = "Try again";
+  retry.onclick = () => render(currentGame);
+  notice.append(message, retry);
+  stage.replaceChildren(frame, notice);
+  detach = startGame(frame, game.id, game.html, state => {
+    notice.hidden = state === "ready";
+    notice.setAttribute("role", state === "loading" ? "status" : "alert");
+    retry.hidden = state === "loading";
+    message.textContent = state === "loading" ? "Opening your game…" : state === "timeout"
+      ? "This game is taking too long to start. Try restarting."
+      : "This game couldn't start properly. Try restarting, or ask its creator for a fix.";
+  });
   document.getElementById("game-name").textContent = game.title;
   document.title = game.title;
   currentGame = game;
@@ -40,9 +52,9 @@ async function prepareOffline() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(base);
     registration = existing?.active && existing.scope === new URL(base, location.href).href
-      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=1", { scope: base });
-    if (navigator.onLine) registration.update().catch(() => {});
-    if (!registration.active) {
+      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=3", { scope: base });
+    if (navigator.onLine) await registration.update().catch(() => {});
+    if (registration.installing || registration.waiting || !registration.active) {
       await new Promise((resolve, reject) => {
         const worker = registration.installing || registration.waiting;
         if (!worker) return reject(new Error("Offline play couldn't start."));
@@ -54,7 +66,7 @@ async function prepareOffline() {
       });
     }
     const meta = await talk("STATUS");
-    if (meta.revisionId === currentGame.revisionId) { downloaded = true; return showStatus(playingOffline || !navigator.onLine ? "Playing offline" : "Ready offline", true); }
+    if (meta.revisionId === currentGame.revisionId && meta.playerVersion === PLAYER_VERSION) { downloaded = true; return showStatus(playingOffline || !navigator.onLine ? "Playing offline" : "Ready offline", true); }
     showStatus("Saving for offline…");
     await talk("DOWNLOAD", { revisionId: currentGame.revisionId, activate: true });
     downloaded = true;
@@ -71,7 +83,7 @@ async function checkUpdate() {
     const latest = await response.json();
     if (latest.revisionId === currentGame.revisionId) {
       const meta = await talk("STATUS");
-      if (meta.revisionId !== currentGame.revisionId) await prepareOffline();
+      if (meta.revisionId !== currentGame.revisionId || meta.playerVersion !== PLAYER_VERSION) await prepareOffline();
       else showStatus("Ready offline", true);
       return;
     }

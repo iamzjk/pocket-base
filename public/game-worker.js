@@ -1,5 +1,5 @@
 /* Trusted platform code. Never generate a worker from game source. */
-const PLAYER_VERSION = "1"; // Bump with changes to player.js, sandbox.js, or player.css.
+const PLAYER_VERSION = "3"; // Bump with changes to player.js, sandbox.js, or player.css.
 const base = new URL(self.registration.scope);
 const gameId = base.pathname.split("/").filter(Boolean).pop();
 const prefix = "pocket-base:" + gameId + ":";
@@ -27,7 +27,7 @@ async function metadata() {
 }
 async function writeMetadata(value) {
   const cache = await caches.open(metaCache);
-  await cache.put(metaURL, new Response(JSON.stringify(value), { headers: { "Content-Type": "application/json" } }));
+  await cache.put(metaURL, new Response(JSON.stringify({ ...value, playerVersion: PLAYER_VERSION }), { headers: { "Content-Type": "application/json" } }));
 }
 function offlineCopy(response, url) {
   if (!response || url !== gameURL) return response;
@@ -120,7 +120,7 @@ self.addEventListener("fetch", event => {
         return offlineCopy(fallback, request.url) || new Response("Open this game online once to download it.", { status: 503, headers: { "Content-Type": "text/plain" } });
       }
     })());
-  } else if (assets.includes(url.href)) {
+  } else if (assets.includes(url.href) || ["/player.js", "/sandbox.js", "/player.css"].includes(url.pathname)) {
     event.respondWith((async () => (await cached(url.href)) || fetch(request))());
   }
 });

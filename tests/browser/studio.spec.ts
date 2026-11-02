@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { DemoStore, DEMO_OWNER } from "../../src/lib/demo-store";
 import { starters, starterIds } from "../../src/lib/starters";
+import { PLAYER_VERSION } from "../../src/lib/pwa";
 
 function store() { return new DemoStore(DEMO_OWNER, process.env.POCKET_BASE_E2E_DATA_DIR); }
 const evidence = process.env.AGENT_DESK_EVIDENCE_DIR || path.join(os.tmpdir(), "pocket-base-evidence");
@@ -228,4 +229,182 @@ test("all five starters respond to touch and remain usable after phone rotation"
       await expect(button).toBeVisible();
     }
   } finally { await context.close(); }
+});
+
+test("studio controls remain reachable across phone sizes, rotation, and keyboard resizing", async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 320, height: 568 }, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  async function fits() {
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const outside = await page.locator(".editor button:visible, .editor textarea:visible").evaluateAll(elements => elements.filter(e => {
+      const r = e.getBoundingClientRect();
+      return r.top < -1 || r.left < -1 || r.right > innerWidth + 1 || r.bottom > innerHeight + 1;
+    }).map(e => e.getAttribute("aria-label") || e.textContent));
+    expect(outside).toEqual([]);
+  }
+  async function touchTargets() {
+    expect(await page.locator("button:visible").evaluateAll(elements => elements.filter(e => {
+      const r = e.getBoundingClientRect(); return r.width < 43.5 || r.height < 43.5;
+    }).map(e => e.getAttribute("aria-label") || e.textContent))).toEqual([]);
+  }
+  try {
+    await page.goto("http://127.0.0.1:3217/");
+    await touchTargets();
+    // Open from well down the page: the editor must reset the document scroll.
+    await page.getByRole("button", { name: "Start with Matcha Match", exact: true }).tap();
+    const card = page.frameLocator("iframe").getByRole("button", { name: "Reveal card 1", exact: true });
+    await card.tap(); await expect(card).not.toHaveText("✦");
+    for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 768, height: 1024 }, { width: 844, height: 390 }, { width: 390, height: 440 }]) {
+      await page.setViewportSize(viewport);
+      await page.getByRole("tab", { name: "Make changes" }).tap();
+      await page.getByLabel("Describe a change to your game").fill("Keep this draft after rotating");
+      await fits(); await touchTargets();
+      await page.getByRole("tab", { name: "Play", exact: true }).tap();
+      await expect(card).not.toHaveText("✦"); await fits();
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.getByRole("tab", { name: "Make changes" }).tap();
+    await expect(page.getByLabel("Describe a change to your game")).toHaveValue("Keep this draft after rotating");
+    // Model browsers whose keyboard resizes the visual viewport alone.
+    await page.evaluate(() => {
+      Object.defineProperty(visualViewport, "height", { configurable: true, get: () => 360 });
+      visualViewport!.dispatchEvent(new Event("resize"));
+    });
+    await expect.poll(async () => (await page.locator(".studio").boundingBox())?.height).toBe(360);
+    const send = await page.getByRole("button", { name: "Make this change" }).boundingBox();
+    expect(send!.y + send!.height).toBeLessThanOrEqual(360);
+    await page.getByRole("button", { name: "Versions", exact: true }).tap();
+    const dialog = await page.getByRole("dialog").boundingBox();
+    expect(dialog!.y).toBeGreaterThanOrEqual(0);
+    expect(dialog!.y + dialog!.height).toBeLessThanOrEqual(360);
+    await page.getByRole("button", { name: "Close dialog" }).tap();
+    await page.evaluate(() => {
+      delete (visualViewport as any).height;
+      visualViewport!.dispatchEvent(new Event("resize"));
+    });
+    await page.getByRole("button", { name: "Publish", exact: true }).tap();
+    await page.getByRole("button", { name: "Publish my game" }).tap();
+    await expect(page.getByRole("button", { name: "This version is live" })).toBeVisible();
+    await screenshot(page, "mobile-publish");
+    await page.getByRole("button", { name: "Close dialog" }).tap();
+    await screenshot(page, "mobile-chat");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByRole("region", { name: "Game conversation" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Playable game preview" })).toBeVisible();
+    await fits();
+  } finally { await context.close(); }
+});
+
+test("player installation help fits a rotated phone and refreshes older offline assets", async ({ page, context }) => {
+  const id = starterIds[0];
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/play/" + id + "/");
+  await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+  // Simulate an installed release from before the player layout upgrade.
+  await page.evaluate(async ({ gameId, PLAYER_VERSION }) => {
+    const meta = await caches.open("pocket-base:" + gameId + ":meta");
+    const url = new URL("__offline", location.href).href;
+    const value = await (await meta.match(url))!.json();
+    const previousVersion = String(Number(PLAYER_VERSION) - 1);
+    const oldName = value.active.replace(":" + PLAYER_VERSION + ":", ":" + previousVersion + ":");
+    const oldCache = await caches.open(oldName), currentCache = await caches.open(value.active);
+    for (const request of await currentCache.keys()) await oldCache.put(request, (await currentCache.match(request))!);
+    await caches.delete(value.active);
+    await meta.put(url, Response.json({ ...value, active: oldName, playerVersion: previousVersion }));
+  }, { gameId: id, PLAYER_VERSION });
+  await page.reload();
+  await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+  expect(await page.evaluate(async gameId => {
+    const meta = await caches.open("pocket-base:" + gameId + ":meta");
+    return (await (await meta.match(new URL("__offline", location.href).href))!.json()).playerVersion;
+  }, id)).toBe(PLAYER_VERSION);
+  await page.getByRole("button", { name: "Add to phone" }).click();
+  await page.setViewportSize({ width: 844, height: 390 });
+  const help = page.locator(".help-card");
+  const box = await help.boundingBox();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(390);
+  await page.getByRole("button", { name: "Got it" }).click();
+  await context.setOffline(true); await page.reload();
+  await expect(page.frameLocator("iframe").getByRole("heading", { name: "Star Catcher" })).toBeVisible();
+  await expect(page.getByText("Playing offline", { exact: true })).toBeVisible();
+  await context.setOffline(false);
+});
+
+test("startup errors stay visible after readiness and offline download complete", async ({ page }) => {
+  const db = store();
+  const game = await db.save({ ...starters[0], title: "Startup failure fixture", prompt: "Fictional runtime failure.",
+    html: '<!doctype html><html><head><style>html,body{margin:0;height:100%}</style></head><body><canvas width="320" height="480"></canvas><script>throw new Error("Fictional startup failure");</script></body></html>' });
+  await db.select(game.id, game.currentRevisionId, "publish");
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    for (const pathname of ["/?game=" + game.id, "/play/" + game.id + "/"]) {
+      await page.goto(pathname);
+      const failure = page.getByRole("alert").filter({ hasText: "This game couldn't start properly" });
+      await expect(failure).toBeVisible();
+      // DOM readiness arrives after this exception; it must not erase the error.
+      await page.waitForTimeout(100);
+      await expect(failure).toBeVisible();
+      if (pathname.startsWith("/play/")) await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+      await expect(failure).toBeVisible();
+      const retry = page.getByRole("button", { name: "Try again", exact: true });
+      const bounds = await retry.boundingBox();
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(viewport.height);
+      await retry.click(); await expect(failure).toBeVisible();
+    }
+  }
+  await screenshot(page, "startup-error-desktop");
+});
+
+test("retry restarts the game and the device-save bridge in studio and public play", async ({ page }) => {
+  const db = store();
+  const game = await db.save({ ...starters[0], title: "Retry fixture", prompt: "Fictional transient startup failure.",
+    html: '<!doctype html><html><head><style>body{margin:0;background:#a6d4c7;font:20px system-ui}</style></head><body><main id="game"></main><script>(async()=>{const retry=await PocketBase.load("settings");if(!retry){await PocketBase.save("settings",{retry:true});throw new Error("Fictional first-attempt failure");}document.getElementById("game").textContent="Ready to play";})()</script></body></html>' });
+  await db.select(game.id, game.currentRevisionId, "publish");
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const pathname of ["/?game=" + game.id, "/play/" + game.id + "/"]) {
+    await page.goto(pathname);
+    await expect(page.getByRole("alert").filter({ hasText: "couldn't start properly" })).toBeVisible();
+    await page.getByRole("button", { name: "Try again", exact: true }).click();
+    await expect(page.frameLocator("iframe").getByText("Ready to play", { exact: true })).toBeVisible();
+    await expect(page.locator(".game-status:visible")).toHaveCount(0);
+    await page.frames().find(f => f.parentFrame())!.evaluate(async () => (window as any).PocketBase.save("settings", null));
+  }
+});
+
+test("hidden previews wait for space before starting and preserve immediate device saves", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const { startGame } = await import("/sandbox.js" as string);
+    const holder = document.createElement("div"); holder.id = "startup-holder";
+    holder.style.cssText = "display:none;width:320px;height:480px";
+    const frame = document.createElement("iframe"); frame.id = "startup-frame";
+    frame.setAttribute("sandbox", "allow-scripts"); frame.style.cssText = "width:100%;height:100%;border:0";
+    holder.append(frame); document.body.append(holder);
+    const states: string[] = []; (window as any).startupStates = states;
+    (window as any).stopStartup = startGame(frame, "fictional-hidden-frame", '<!doctype html><html><body><main id="game"></main><script>(async()=>{if(!document.documentElement.clientWidth)throw new Error("No space");const saved=await PocketBase.load("progress");document.getElementById("game").textContent=saved===null?"Device save ready":"Unexpected save";})()</script></body></html>', (state: string) => states.push(state));
+  });
+  await page.waitForTimeout(100);
+  expect(await page.locator("#startup-frame").getAttribute("srcdoc")).toBeNull();
+  expect(await page.evaluate(() => (window as any).startupStates)).toEqual(["loading"]);
+  await page.locator("#startup-holder").evaluate(el => { el.style.display = "block"; });
+  await expect(page.frameLocator("#startup-frame").getByText("Device save ready", { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as any).startupStates)).toEqual(["loading", "ready"]);
+  await page.evaluate(() => { (window as any).stopStartup(); document.getElementById("startup-holder")!.remove(); });
+});
+
+test("a frame that never starts shows a timeout and a retry action", async ({ page }) => {
+  await page.addInitScript(() => {
+    const property = Object.getOwnPropertyDescriptor(HTMLIFrameElement.prototype, "srcdoc")!;
+    Object.defineProperty(HTMLIFrameElement.prototype, "srcdoc", { ...property, set() { this.dataset.startAttempted = "yes"; } });
+  });
+  await page.clock.install();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?game=" + starterIds[0]);
+  await page.locator('iframe[data-start-attempted="yes"]').waitFor();
+  await expect(page.getByRole("status").filter({ hasText: "Opening your game" })).toBeVisible();
+  await page.clock.fastForward(13_000);
+  await expect(page.getByRole("alert").filter({ hasText: "taking too long to start" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Try again", exact: true })).toBeVisible();
 });

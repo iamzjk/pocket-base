@@ -52,6 +52,8 @@ The app reserves attempts transactionally in PostgreSQL before calling OpenRoute
 
 Each create/edit uses a single model request, with no automatic retry loop. Finished games run locally in the browser and use no inference.
 
+Generation instructions leave each new game's art direction, layout, and mechanics to the model and the user's preferences. The five `theme` values choose library cover artwork; they do not restrict the in-game palette or visual style. Short prompts receive a focused interpretation, with no mandatory scoring, levels, or timers. Edits preserve the existing game's identity unless the requested change calls for a redesign. These instructions encourage variety; live output comparisons are needed to assess how well a model follows them.
+
 Provider errors distinguish a rejected OpenRouter key, an upstream provider credential failure, unavailable free endpoints, and rate limits. If Google AI Studio reports an invalid key, check any Google BYOK connection in OpenRouter. A working OpenRouter API key does not guarantee that its upstream provider credentials work. No credentials or raw provider errors are shown in app responses.
 
 ## Deploy to Vercel once
@@ -87,6 +89,8 @@ Scores and supported progress are device-local and isolated by game. There is no
 Games use self-contained HTML/CSS/plain JavaScript. External packages, backend execution, multiplayer, integrations, and image generation are deferred.
 
 The trusted player runs generated code in an iframe with only `allow-scripts`, without `allow-same-origin`. A restrictive content security policy blocks fetch, workers, nested frames, and outside resources. Source is parsed and script syntax checked before saving. Game source is served as JSON and never inserted into the top-level builder or player document.
+
+The studio preview and public player wait for a visible frame before starting the game and listen for a startup acknowledgement. A failed start or a 12-second startup timeout shows a retry action. Time spent in a hidden tab or panel does not trigger the timeout. Runtime failure messages stay visible independently of offline download status. Startup acknowledgement confirms the frame loaded; it does not prove that the generated game is bug-free or fun.
 
 Games receive an asynchronous save bridge:
 

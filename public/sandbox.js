@@ -14,6 +14,7 @@ export function sandboxDocument(html, channel) {
     "const p=waiting.get(e.data.id);if(!p)return;clearTimeout(p.timer);waiting.delete(e.data.id);e.data.error?p.reject(new Error(e.data.error)):p.resolve(e.data.value);});",
     "addEventListener('error',()=>parent.postMessage({channel,type:'game-error'},'*'));",
     "addEventListener('unhandledrejection',()=>parent.postMessage({channel,type:'game-error'},'*'));",
+    "addEventListener('DOMContentLoaded',()=>parent.postMessage({channel,type:'game-ready'},'*'),{once:true});",
     "})();"
   ].join("");
   return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + GAME_POLICY +
@@ -43,12 +44,13 @@ async function storage(gameId, key, value, write) {
   } finally { db.close(); }
 }
 
-export function attachGameBridge(frame, gameId, channel, onError = () => {}) {
+export function attachGameBridge(frame, gameId, channel, onError = () => {}, onReady = () => {}) {
   let pending = 0;
   const handler = async event => {
     if (event.source !== frame.contentWindow || !event.data || event.data.channel !== channel) return;
     const { type, id, key, value } = event.data;
     if (type === "game-error") { onError(); return; }
+    if (type === "game-ready") { onReady(); return; }
     if (!["load", "save"].includes(type) || typeof id !== "string" || id.length > 40) return;
     const respond = data => frame.contentWindow?.postMessage({ channel, id, ...data }, "*");
     if (!/^[a-z0-9_-]{1,24}$/i.test(key || "") || !["progress", "score", "settings"].includes(key))
@@ -66,4 +68,56 @@ export function attachGameBridge(frame, gameId, channel, onError = () => {}) {
   window.addEventListener("message", handler);
   document.addEventListener("visibilitychange", visibility);
   return () => { window.removeEventListener("message", handler); document.removeEventListener("visibilitychange", visibility); };
+}
+
+/**
+ * Start only after the frame has space to render, with the bridge listening
+ * before any game code runs. A ready message confirms startup, not game quality.
+ * @param {HTMLIFrameElement} frame
+ * @param {string} gameId
+ * @param {string} html
+ * @param {(state: "loading" | "ready" | "error" | "timeout") => void} onState
+ */
+export function startGame(frame, gameId, html, onState) {
+  const channel = crypto.randomUUID();
+  let disposed = false, started = false, scheduled = 0, timer;
+  let state = "loading";
+  const clearTimer = () => { clearTimeout(timer); timer = undefined; };
+  const transition = next => {
+    if (disposed || state === next) return;
+    // A later DOM-ready message must not hide a startup exception or timeout.
+    if (next === "ready" && state !== "loading") return;
+    state = next; clearTimer(); onState(next);
+  };
+  const detach = attachGameBridge(frame, gameId, channel, () => transition("error"), () => transition("ready"));
+  const visible = () => {
+    const bounds = frame.getBoundingClientRect();
+    return !document.hidden && bounds.width > 0 && bounds.height > 0;
+  };
+  const check = () => {
+    if (disposed) return;
+    if (!visible()) {
+      clearTimer();
+      if (scheduled) { cancelAnimationFrame(scheduled); scheduled = 0; }
+      return;
+    }
+    if (!started && !scheduled) scheduled = requestAnimationFrame(() => {
+      scheduled = 0;
+      if (disposed || !visible()) return;
+      started = true;
+      try { frame.srcdoc = sandboxDocument(html, channel); }
+      catch { transition("error"); return; }
+      check();
+    });
+    if (started && state === "loading" && timer === undefined)
+      timer = setTimeout(() => { if (visible()) transition("timeout"); else clearTimer(); }, 12_000);
+  };
+  const observer = new ResizeObserver(check);
+  observer.observe(frame);
+  document.addEventListener("visibilitychange", check);
+  onState("loading"); check();
+  return () => {
+    disposed = true; clearTimer(); cancelAnimationFrame(scheduled);
+    observer.disconnect(); document.removeEventListener("visibilitychange", check); detach();
+  };
 }

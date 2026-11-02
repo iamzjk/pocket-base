@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw } from "lucide-react";
 import { PocketMark, GameArtwork } from "./artwork";
 import type { Project, ProjectDetail, Revision, Theme } from "@/lib/types";
-import { sandboxDocument, attachGameBridge } from "../../public/sandbox.js";
+import { startGame } from "../../public/sandbox.js";
 
 type Starter = { key: string; title: string; description: string; theme: Theme; tag: string; prompt: string };
 type Props = { initialProjects: Project[]; starters: Starter[]; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string };
@@ -18,19 +18,19 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 function GamePreview({ revision, projectId }: { revision: Revision; projectId: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
-  const [hiccup, setHiccup] = useState(false);
+  const [state, setState] = useState<"loading" | "ready" | "error" | "timeout">("loading");
   const [restart, setRestart] = useState(0);
   useEffect(() => {
     if (!ref.current) return;
-    const channel = crypto.randomUUID();
-    setHiccup(false);
-    ref.current.srcdoc = sandboxDocument(revision.html, channel);
-    return attachGameBridge(ref.current, projectId, channel, () => setHiccup(true));
-  }, [revision, projectId, restart]);
+    return startGame(ref.current, projectId, revision.html, setState);
+  }, [revision.id, revision.html, projectId, restart]);
   return <div className="preview-window">
     <div className="preview-toolbar"><span><i/> Live preview</span><button className="icon-button" aria-label="Restart preview" onClick={() => setRestart(r => r + 1)}><RotateCcw size={16}/></button></div>
-    <iframe ref={ref} title={"Preview of " + revision.title} sandbox="allow-scripts" allow="camera 'none'; microphone 'none'; geolocation 'none'"/>
-    {hiccup && <div className="preview-hiccup" role="status">A little hiccup. Try restarting or restoring a version.</div>}
+    <div className="preview-stage"><iframe ref={ref} title={"Preview of " + revision.title} sandbox="allow-scripts" allow="camera 'none'; microphone 'none'; geolocation 'none'"/>
+      {state !== "ready" && <div className="game-status" role={state === "loading" ? "status" : "alert"}>
+        {state === "loading" ? <><LoaderCircle className="spin" size={24}/><p>Opening your game…</p></> : <><p>{state === "timeout" ? "This game is taking too long to start." : "This game couldn't start properly."} Try restarting. If it keeps happening, restore a previous version or ask for a fix.</p><button className="primary-button" onClick={() => setRestart(r => r + 1)}><RotateCcw size={16}/>Try again</button></>}
+      </div>}
+    </div>
   </div>;
 }
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
@@ -54,7 +54,8 @@ export function Studio(props: Props) {
   const [signedIn, setSignedIn] = useState(props.signedIn);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const chatBottom = useRef<HTMLDivElement>(null);
+  const studioRef = useRef<HTMLDivElement>(null);
+  const chatScroll = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const current = project?.revisions.find(r => r.id === project.currentRevisionId);
   const loadSequence = useRef(0);
@@ -82,7 +83,25 @@ export function Studio(props: Props) {
     navigate(); window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
   }, [openProject, props.signedIn]);
-  useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [project, busy]);
+  useEffect(() => {
+    const scroll = chatScroll.current;
+    scroll?.scrollTo({ top: scroll.scrollHeight, behavior: "smooth" });
+  }, [project, busy, tab]);
+  useEffect(() => {
+    if (project?.id) window.scrollTo(0, 0);
+  }, [project?.id]);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    // Mobile keyboards can resize only the visual viewport. Keep the composer
+    // and dialogs inside it, while leaving pinch zoom under the user's control.
+    const resize = () => {
+      if (viewport.scale === 1) studioRef.current?.style.setProperty("--studio-height", viewport.height + "px");
+    };
+    resize();
+    viewport.addEventListener("resize", resize);
+    return () => viewport.removeEventListener("resize", resize);
+  }, []);
   function home() {
     if (busy) return;
     setProject(null); setError(""); setChange(""); history.pushState({}, "", "/");
@@ -107,6 +126,7 @@ export function Studio(props: Props) {
     if (needLogin() || busy) return;
     const text = project ? change.trim() : prompt.trim();
     if (!text) return;
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     setError(""); setBusy("generate");
     try {
       const p = await api<ProjectDetail>("/api/generate", { prompt: text,
@@ -139,7 +159,7 @@ export function Studio(props: Props) {
     catch (e) { setError((e as Error).message); setBusy(""); }
   }
   const playURL = project && typeof window !== "undefined" ? location.origin + "/play/" + project.id + "/" : "";
-  return <div className={"studio " + (project ? "is-editing" : "")}>
+  return <div ref={studioRef} className={"studio " + (project ? "is-editing" : "")}>
     <header className="topbar">
       <button className="brand" onClick={home} disabled={!!busy} aria-label="Pocket Base home"><PocketMark/><span>pocket<span className="brand-light">base</span></span></button>
       <div className="header-right">
@@ -192,14 +212,19 @@ export function Studio(props: Props) {
     </main> : <main className="editor">
       <div className="editor-heading"><div className="editor-heading-left"><button className="icon-button back" aria-label="Back to my studio" onClick={home} disabled={!!busy}><ChevronLeft size={21}/></button><div><h1>{project.title}</h1><span>{project.publishedRevisionId === project.currentRevisionId ? "This version is published" : project.publishedRevisionId ? "New changes · ready when you are" : "Your own little world"}</span></div></div>
         <div className="editor-actions"><button className="secondary-button" aria-label="Versions" onClick={() => { setError(""); setModal("versions"); }} disabled={!!busy}><History size={16}/><span>Versions</span></button><button className="primary-button" onClick={() => { setError(""); setModal("share"); }} disabled={!!busy}><Globe size={16}/>Publish</button></div></div>
-      <div className="mobile-tabs" role="tablist" aria-label="Game editor"><button role="tab" aria-selected={tab === "chat"} onClick={() => setTab("chat")}><Sparkles size={16}/> Make changes</button><button role="tab" aria-selected={tab === "play"} onClick={() => setTab("play")}><Play size={16}/> Play</button></div>
+      <div className="mobile-tabs" role="tablist" aria-label="Game editor" onKeyDown={e => {
+        if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const next = e.key === "Home" ? "chat" : e.key === "End" ? "play" : tab === "chat" ? "play" : "chat";
+        setTab(next); document.getElementById("studio-tab-" + next)?.focus();
+      }}><button id="studio-tab-chat" role="tab" aria-controls="studio-chat" aria-selected={tab === "chat"} tabIndex={tab === "chat" ? 0 : -1} onClick={() => setTab("chat")}><Sparkles size={16}/> Make changes</button><button id="studio-tab-play" role="tab" aria-controls="studio-play" aria-selected={tab === "play"} tabIndex={tab === "play" ? 0 : -1} onClick={() => setTab("play")}><Play size={16}/> Play</button></div>
       <div className={"editor-panels tab-" + tab}>
-        <section className="chat-panel" aria-label="Game conversation"><div className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Tell me what you'd like to change. A new character? More stars? A whole new twist?</p></div>
+        <section id="studio-chat" className="chat-panel" aria-label="Game conversation"><div ref={chatScroll} className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Tell me what you'd like to change. A new character? More stars? A whole new twist?</p></div>
           {[...project.revisions].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map((r,i) => <div className="conversation" key={r.id}><div className="user-message">{r.prompt}</div><div className="studio-message"><Sparkles size={15}/><div><p>{r.description}</p><span className="version-pill"><Check size={11}/> Version {i+1} saved {r.id === project.currentRevisionId && "· current"}</span></div></div></div>)}
-          {busy === "generate" && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> Making a little magic. This may take a minute…</div>}<div ref={chatBottom}/></div>
+          {busy === "generate" && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> Making a little magic. This may take a minute…</div>}</div>
           <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={2000} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
         </section>
-        <section className="preview-panel" aria-label="Playable game preview">{current && <GamePreview revision={current} projectId={project.id}/>}<p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p></section>
+        <section id="studio-play" className="preview-panel" aria-label="Playable game preview">{current && <GamePreview revision={current} projectId={project.id}/>}<p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p></section>
       </div>
     </main>}
     {busy === "open" && <div className="loading-toast" role="status"><LoaderCircle size={17} className="spin"/> Opening your little world…</div>}
