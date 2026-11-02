@@ -172,3 +172,24 @@
   .is-editing .topbar{padding:8px 16px;height:60px;min-height:60px;gap:0}
   .library-page .published-section{padding-top:28px}
 }
+
+/* Public metadata and the Pocket Base account forms. */
+.published-meta{display:flex;flex-direction:column;gap:5px;margin:0 0 14px;font-size:12px;line-height:1.6;color:#88768f;overflow-wrap:anywhere}
+.account-page{max-width:510px;margin:0 auto;padding:38px 22px 60px}
+.account-page>.brand{text-decoration:none;justify-content:center;margin:0 auto 32px;color:var(--purple)}
+.auth-card{background:#fffdf9;border:1px solid var(--line);padding:30px;border-radius:22px}
+.auth-card h1{font-size:28px;letter-spacing:-.7px;margin:25px 0 12px}
+.auth-tabs{display:flex;gap:6px;padding:4px;border-radius:12px;background:var(--soft)}
+.auth-tabs button{flex:1;min-height:44px;border-radius:9px;background:transparent;color:#796387;font-size:13px;font-weight:650}
+.auth-tabs .is-active{background:#fffdf9;color:var(--purple);box-shadow:0 2px 5px #30213f0b}
+.auth-card .login-form label{font-size:13px}
+.login-form small{display:block;font-size:12px;line-height:1.6;font-weight:400;color:#88768f;margin-top:7px}
+.auth-card .primary-button{min-height:44px;font-size:14px}
+.auth-card .play-link{margin-bottom:0}
+.captcha-check{margin:18px 0;min-height:144px}
+.captcha-check p{font-size:13px;line-height:1.6;color:#a45f53}
+.profile-saved{color:#5b805e;font-size:13px}
+.account-signout{margin-top:22px}
+a.small-button{text-decoration:none;display:inline-flex;align-items:center}
+@media(max-width:760px){.published-grid{grid-template-columns:minmax(0,1fr);gap:20px}.published-card h3{font-size:18px}.published-card .card-details{padding:18px}.published-meta{font-size:13px}}
+@media(max-width:400px){.account-page{padding:24px 14px}.auth-card{padding:22px 18px}.auth-card h1{font-size:25px}}

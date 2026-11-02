@@ -1,12 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, type SaveInput, type Store, type PublicGame, type GameLibrary } from "./types";
 import { StudioError } from "./errors";
+import { publicName } from "./profile";
 
 type Row = Record<string, unknown>;
 function project(row: Row): Project {
   return { id: String(row.id), ownerId: String(row.owner_id), title: String(row.title),
     description: String(row.description), theme: row.theme as Project["theme"],
     currentRevisionId: String(row.current_revision_id), publishedRevisionId: row.published_revision_id as string | null,
+    publishedAt: row.published_at as string | null,
     createdAt: String(row.created_at), updatedAt: String(row.updated_at) };
 }
 function detail(row: Row): ProjectDetail {
@@ -27,6 +29,16 @@ export function databaseError(error: { message: string } | null) {
 }
 export class SupabaseStore implements Store {
   constructor(private client: SupabaseClient) {}
+  async profile() {
+    const { data, error } = await this.client.rpc("creator_profile");
+    databaseError(error);
+    return data;
+  }
+  async saveProfile(displayName: string) {
+    const { data, error } = await this.client.rpc("save_creator_profile", { p_display_name: publicName(displayName) });
+    databaseError(error);
+    return data;
+  }
   async list() {
     const { data, error } = await this.client.from("projects").select("*").order("updated_at", { ascending: false });
     databaseError(error);

@@ -14,3 +14,11 @@ test("same-origin browser requests work behind Next's internal hostname while cr
   });
   assert.deepEqual(await readMutation(production), {});
 });
+
+test("5,000-character Unicode prompts fit even when JSON escapes every character",async()=>{
+  const escaped='{"prompt":"'+"\\u661f".repeat(5000)+'"}';
+  const request=(body:string)=>new Request("https://pocket.example/api/generate",{method:"POST",
+    headers:{host:"pocket.example",origin:"https://pocket.example","content-type":"application/json"},body});
+  assert.deepEqual(await readMutation(request(escaped)),{prompt:"星".repeat(5000)});
+  await assert.rejects(readMutation(request(JSON.stringify({prompt:"a".repeat(32000)}))),/too long/);
+});

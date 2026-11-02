@@ -1,13 +1,13 @@
 # Pocket Base contributor instructions
 
-Pocket Base is a standalone Next.js App Router application using React, TypeScript, Node.js 22+, Supabase, OpenRouter, and Vercel. Read `README.md` for setup and deployment. Read `package.json` for the current version and commands; the home-page footer derives its version from that file. Keep the root version in `package-lock.json` synchronized when releasing.
+Pocket Base is a standalone Next.js App Router application using React, TypeScript, Node.js 22+, Supabase, OpenRouter, and Vercel. Read `README.md` for setup and deployment. Read `package.json` for the current version and commands; the home-page footer derives its version from that file. Increment the version for every release and keep the root/package versions in `package-lock.json` synchronized.
 
 ## Product and access boundaries
 
-- `/` is My studio. Creating, editing, restoring, and publishing require a signed-in account. Each account owns separate projects and revisions; there is no public signup or shared editing UI.
+- `/` is My studio. Creating, editing, restoring, and publishing require a signed-in account. Each account owns separate projects and revisions; public signup requires hCaptcha and a public name. There is no shared editing UI.
 - `/library` and `/api/library` are public. Anyone can browse all users' published games and open `/play/<id>/` without signing in. Publishing opts a game into discovery; unpublishing removes it from fresh listings and online play. Previously downloaded games may remain playable offline.
-- Public listings must read the selected **published revision**, not the project's current draft fields. Expose only the listing metadata. Never expose private drafts, prompts, owner IDs, emails, or account details through the library.
-- New studios start empty. Example games exist only in `tests/fixtures/games.ts` and explicit browser-test setup. Do not import or seed those fixtures in application code.
+- Public listings must read the selected **published revision**, not the project's current draft fields. Expose only the listing metadata. Never expose private drafts, prompts, owner IDs, full emails, or private account details through the library. Only the explicit public creator name and publication timestamp are included.
+- New studios start empty. The five maintained originals are public read-only catalog games in `src/content/classic-games.json` and numbered SQL seeds. Test fixtures use separate IDs and must never be imported by application code.
 
 ## Code organization
 
@@ -17,9 +17,17 @@ Pocket Base is a standalone Next.js App Router application using React, TypeScri
 - `src/lib/pwa.ts`, `public/player.js`, `public/player.css`, `public/game-worker.js`, and `public/sandbox.js`: trusted PWA hosting, offline caching, startup handling, and device-save bridge.
 - `supabase/migrations/`: numbered SQL migrations. `scripts/migrate.mjs`: automatic migration runner.
 
+## Accounts and public credits
+
+- `/account` handles signup/sign-in directly through Supabase so rate limits use the visitor’s IP. Once configured, hCaptcha is verified by Supabase on both forms. Before activation, existing sign-in stays available and registration stays hidden; registration must always require CAPTCHA. `/api/auth` validates issued session tokens before persisting SSR cookies; it never trusts a user object from the browser.
+- Public names are 1–80 plain-text characters, required at signup. Existing names are backfilled from email local parts. Profile mutations are owner-checked. No runtime service-role key is needed.
+- The PostgreSQL Before User Created hook enforces 3 registrations/IP/hour, 10/IP/rolling day, and 100 total/rolling day. Group IPv6 by /64. Private atomic counters expire after 24 hours. Missing CAPTCHA or hook failures never bypass protection.
+- `npm run auth:configure` is an explicit post-deployment setup command, never a build/startup side effect. It requires private hCaptcha credentials and an admin token. Deploy compatible forms before enabling CAPTCHA; `npm run auth:check` prints only safe readiness flags.
+- Library `updatedAt` is the publication timestamp. Draft writes, restores, profile updates, and repeated publication of the same live revision must not move it. Original catalog games have fixed revision dates.
+
 ## Generation and game safety
 
-- Initial creation and edits use separate concise instructions. DeepSeek uses low reasoning and a 100,000-token output allowance, including reasoning. The model supplies a short game-specific design brief and complete game source in one request. Leave creative decisions to the model and user rather than imposing shared visual templates or mandatory game mechanics.
+- Creation and edit prompts accept up to 5,000 characters, validated in the UI, API, and database. Initial creation and edits use separate concise instructions. DeepSeek Flash Latest (`~deepseek/deepseek-flash-latest`) uses medium reasoning and a 100,000-token output allowance, including reasoning. The model supplies a short game-specific design brief and complete game source in one request. Leave creative decisions to the model and user rather than imposing shared visual templates or mandatory game mechanics.
 - Edit requests include the complete current HTML/CSS/JavaScript and latest request, with a base-revision check. Do not send every historical version. Do not add automatic paid retries or model fallbacks; preserve provider price caps and transactional attempt limits unless the task changes them.
 - New games may include an SVG logo. Edits must omit logo generation and keep the stored logo unchanged. Enforce this in the generation path, both stores, and the database save function, rather than relying only on prompt instructions.
 - Treat SVG as untrusted input. Validate the restricted vector subset and rasterize it to PNG with Sharp. Never insert model SVG into the studio DOM or serve it as executable markup. Invalid or legacy icons use the safe fallback. Published icon endpoints must use the published revision.

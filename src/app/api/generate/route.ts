@@ -1,13 +1,14 @@
 import { requireStore } from "@/lib/auth";
 import { errorResponse, readMutation, requireId, StudioError } from "@/lib/errors";
 import { generationModel, generateGame } from "@/lib/generate";
+import { MAX_PROMPT_CHARACTERS } from "@/lib/limits";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
     const body = await readMutation(request);
     const store = await requireStore(request);
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt || prompt.length > 2000) throw new StudioError("Describe your idea in 1 to 2,000 characters.");
+    if (!prompt || prompt.length > MAX_PROMPT_CHARACTERS) throw new StudioError("Describe your idea in 1 to 5,000 characters.");
     let previous;
     let projectId: string | undefined;
     let baseRevisionId: string | undefined;

@@ -45,9 +45,9 @@ export const starters: (GeneratedGame & { key: string; prompt: string; tag: stri
   { key: "draw", title: "Doodle Garden", description: "Make something wonderfully you.", theme: "peach", html: draw, tag: "Creative play", prompt: "Make a finger-painting toy with a white canvas, five pretty colors, smooth thick brush strokes, and a fresh canvas button." },
 ];
 export const starterIds = [
-  "10000000-0000-4000-8000-000000000001", "10000000-0000-4000-8000-000000000002",
-  "10000000-0000-4000-8000-000000000003", "10000000-0000-4000-8000-000000000004",
-  "10000000-0000-4000-8000-000000000005",
+  "30000000-0000-4000-8000-000000000001", "30000000-0000-4000-8000-000000000002",
+  "30000000-0000-4000-8000-000000000003", "30000000-0000-4000-8000-000000000004",
+  "30000000-0000-4000-8000-000000000005",
 ];
 
 // Explicit test data only. Production and new local studios start empty.
@@ -56,8 +56,8 @@ export function browserFixtureState() {
   const projects = starters.map((game, index) => ({
     id: starterIds[index], ownerId: "00000000-0000-4000-8000-000000000001",
     title: game.title, description: game.description, theme: game.theme,
-    currentRevisionId: "20000000-0000-4000-8000-00000000000" + (index + 1),
-    publishedRevisionId: "20000000-0000-4000-8000-00000000000" + (index + 1), createdAt: at, updatedAt: at,
+    currentRevisionId: "40000000-0000-4000-8000-00000000000" + (index + 1),
+    publishedRevisionId: "40000000-0000-4000-8000-00000000000" + (index + 1), createdAt: at, updatedAt: at, publishedAt: at,
   }));
   return { projects, revisions: projects.map((p,index) => ({ ...starters[index], id: p.currentRevisionId, projectId: p.id, prompt: "Fictional browser fixture.", createdAt: at })), attempts: [] };
 }

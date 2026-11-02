@@ -13,8 +13,10 @@ export function demoAllowed(host: string) {
     ["localhost", "127.0.0.1", "[::1]"].includes(hostname);
 }
 export function supabaseConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+  // Read at request time; only the explicitly selected public settings go to forms.
+  // Next also inlines aliased `.NEXT_PUBLIC_*` access in server bundles.
+  const url = Reflect.get(process.env, "NEXT_PUBLIC_SUPABASE_URL") as string | undefined;
+  const key = Reflect.get(process.env, "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY") as string | undefined;
   return url && key ? { url, key } : null;
 }
 export async function sessionClient() {

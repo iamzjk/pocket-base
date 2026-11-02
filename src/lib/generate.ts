@@ -4,19 +4,45 @@ import { parseGeneration } from "./game";
 import type { Revision } from "./types";
 
 export const MAX_GENERATION_TOKENS = 100_000;
+export const GENERATION_TIMEOUT_MS = 250_000;
+
+function timeoutError() {
+  return new StudioError("The game maker ran out of time before finishing. Your saved games are safe. Please try again later.", 504);
+}
+
+function transportError(error: unknown, signal: AbortSignal, stage: "connect" | "body", startedAt: number, response?: Response) {
+  const name = error && typeof error === "object" && "name" in error ? error.name : "";
+  const timedOut = signal.aborted || name === "AbortError" || name === "TimeoutError";
+  const unreadable = !timedOut && error instanceof SyntaxError;
+  const generationId = response?.headers.get("x-generation-id");
+  // Only fixed categories, timing, and a restricted correlation ID. Never log
+  // exception messages/causes, response bodies, prompts, game source, or keys.
+  console.warn("[Pocket Base generation]", {
+    category: timedOut ? "timeout" : unreadable ? "invalid_response" : "connection_interrupted",
+    stage, elapsedMs: Math.max(0, Date.now() - startedAt), status: response?.status,
+    ...(generationId && /^gen-[a-zA-Z0-9_-]{1,156}$/.test(generationId) ? { generationId } : {}),
+  });
+  if (timedOut)
+    return timeoutError();
+  if (stage === "connect")
+    return new StudioError("The studio couldn't connect to the game maker. Your saved games are safe. Please try again later.", 503);
+  if (unreadable)
+    return new StudioError("The game maker returned an incomplete or unreadable response. Your saved games are safe. Please try again later.", 502);
+  return new StudioError("The connection to the game maker was interrupted before it finished. Your saved games are safe. Please try again later.", 502);
+}
 
 export function generationModel() {
-  const model = process.env.OPENROUTER_MODEL || "deepseek/deepseek-v4.1-flash";
+  const model = process.env.OPENROUTER_MODEL || "~deepseek/deepseek-flash-latest";
   if (model === "openrouter/free" || /^[a-z0-9._/-]+:free$/i.test(model))
     return { model, provider: { max_price: { prompt: 0, completion: 0 }, require_parameters: true } };
-  if (model === "deepseek/deepseek-v4.1-flash")
+  if (model === "~deepseek/deepseek-flash-latest" || model === "deepseek/deepseek-v4.1-flash")
     return {
       model,
       // USD per million tokens. Refuse more expensive providers if prices rise.
       provider: { max_price: { prompt: 0.30, completion: 1.20 }, require_parameters: true, sort: "price" },
-      reasoning: { effort: "low", exclude: true },
+      reasoning: { effort: "medium", exclude: true },
     };
-  throw new StudioError("The studio needs a supported game-making model configured. Choose a free model or DeepSeek V4.1 Flash.", 503);
+  throw new StudioError("The studio needs a supported game-making model configured. Choose a free model or DeepSeek Flash.", 503);
 }
 const GAME_CONTRACT = [
   "Build a complete, child-safe 2D browser game from the user's idea. Fill gaps sensibly; let the idea and user preferences determine its mechanics and visual identity.",
@@ -33,6 +59,7 @@ function generationError(status: number, error: unknown, free: boolean): StudioE
   const details = error && typeof error === "object" ? error as Record<string, unknown> : {};
   const metadata = details.metadata && typeof details.metadata === "object"
     ? details.metadata as Record<string, unknown> : {};
+  if (status === 408 || status === 504 || metadata.error_type === "timeout") return timeoutError();
   // Inspect provider details only to classify the failure. Never return or log
   // their raw payload: it can contain credentials, prompts, or other private data.
   const raw = typeof metadata.raw === "string" ? metadata.raw : JSON.stringify(metadata.raw || "");
@@ -56,6 +83,8 @@ export async function generateGame(prompt: string, previous?: Revision) {
   if (!key) throw new StudioError("AI game-making isn't connected yet. Ask a grown-up to connect it; you can still play published games in the library.", 503);
   const config = generationModel();
   const free = config.provider.max_price.prompt === 0;
+  const startedAt = Date.now();
+  const signal = AbortSignal.timeout(GENERATION_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -69,19 +98,25 @@ export async function generateGame(prompt: string, previous?: Revision) {
           { role: "user", content: prompt },
         ],
       }),
-      signal: AbortSignal.timeout(250_000),
+      signal,
     });
-  } catch {
-    throw new StudioError("The game maker is taking a little too long. Your saved version is safe. Try again later.", 504);
+  } catch (error) {
+    throw transportError(error, signal, "connect", startedAt);
   }
   let body;
   try { body = await response.json(); }
-  catch {
+  catch (error) {
+    // fetch() may resolve after headers, while the model is still generating.
+    // Its timeout applies to reading the body too, so do not treat every body
+    // failure as malformed JSON.
+    if (signal.aborted || (error instanceof Error && ["AbortError","TimeoutError"].includes(error.name)))
+      throw transportError(error, signal, "body", startedAt, response);
     if (!response.ok) throw generationError(response.status, null, free);
-    throw new StudioError("The game maker didn't finish a readable response. Your saved games are safe; try again later.", 502);
+    throw transportError(error, signal, "body", startedAt, response);
   }
   if (!response.ok || body?.error) throw generationError(response.ok ? Number(body.error.code) : response.status, body?.error, free);
   const choice = body?.choices?.[0];
+  if (choice?.error) throw generationError(Number(choice.error.code) || 502, choice.error, free);
   if (choice?.finish_reason === "length") throw new StudioError("The game maker reached its response limit before finishing. Your saved version is safe. Please try again.", 502);
   if (typeof choice?.message?.content !== "string") throw new StudioError("The game maker didn't finish. Try again later.", 502);
   const game = parseGeneration(choice.message.content);

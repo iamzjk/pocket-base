@@ -1,6 +1,6 @@
 {
   "name": "pocket-base",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "engines": {
     "node": ">=22"
@@ -15,7 +15,9 @@
     "setup": "node scripts/first-run.mjs",
     "predev": "node scripts/migrate.mjs dev",
     "prebuild": "node scripts/migrate.mjs build",
-    "db:migrate": "node scripts/migrate.mjs migrate"
+    "db:migrate": "node scripts/migrate.mjs migrate",
+    "auth:check": "node scripts/configure-auth.mjs",
+    "auth:configure": "node scripts/configure-auth.mjs --apply"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

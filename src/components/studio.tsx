@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw } from "lucide-react";
 import { PocketMark, GameArtwork } from "./artwork";
-import type { Project, ProjectDetail, Revision, GameLibrary } from "@/lib/types";
+import type { Project, ProjectDetail, Revision, GameLibrary, CreatorProfile } from "@/lib/types";
 import { startGame } from "../../public/sandbox.js";
+import { MAX_PROMPT_CHARACTERS } from "@/lib/limits";
 
-type Props = { version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: GameLibrary; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string; initialLibraryError?: string };
+type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: GameLibrary; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string; initialLibraryError?: string };
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(path, body === undefined ? { cache: "no-store" } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -53,11 +54,11 @@ export function Studio(props: Props) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState(props.initialError || "");
   const [tab, setTab] = useState<"chat" | "play">("chat");
-  const [modal, setModal] = useState<"login" | "share" | "versions" | null>(null);
+  const [modal, setModal] = useState<"account" | "share" | "versions" | null>(null);
   const [copied, setCopied] = useState(false);
-  const [signedIn, setSignedIn] = useState(props.signedIn);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const signedIn = props.signedIn;
+  const [displayName, setDisplayName] = useState(props.initialDisplayName);
+  const [profileSaved, setProfileSaved] = useState(false);
   const studioRef = useRef<HTMLDivElement>(null);
   const chatScroll = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -127,7 +128,7 @@ export function Studio(props: Props) {
   function needLogin() {
     if (signedIn) return false;
     if (!props.configured) setError("A grown-up needs to finish setting up this studio.");
-    else setModal("login");
+    else location.assign("/account");
     return true;
   }
   async function generate(event: React.FormEvent) {
@@ -156,10 +157,13 @@ export function Studio(props: Props) {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
   }
-  async function login(event: React.FormEvent) {
-    event.preventDefault(); setError(""); setBusy("login");
-    try { await api("/api/auth", { action: "login", email, password }); setSignedIn(true); location.reload(); }
-    catch (e) { setError((e as Error).message); }
+  async function saveProfile(event: React.FormEvent) {
+    event.preventDefault(); setError(""); setBusy("profile"); setProfileSaved(false);
+    try {
+      const profile = await api<CreatorProfile>("/api/profile", { displayName });
+      setDisplayName(profile.displayName); setProfileSaved(true);
+      if (props.view === "library") void loadLibrary();
+    } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
   }
   async function logout() {
@@ -174,8 +178,8 @@ export function Studio(props: Props) {
       <div className="header-right">
         {props.demo && <span className="demo-badge">Local playground</span>}
         <nav className="studio-navigation" aria-label="Main navigation"><a className={"studio-nav " + (props.view === "studio" ? "is-active" : "")} href="/" aria-current={props.view === "studio" ? "page" : undefined}><span className="nav-dot"/>My studio</a><a className={"studio-nav " + (props.view === "library" ? "is-active" : "")} href="/library" aria-current={props.view === "library" ? "page" : undefined}><Globe size={15}/>Game library</a></nav>
-        {signedIn ? <button className="avatar" aria-label={props.demo ? "Demo family studio" : "Sign out of studio"} onClick={() => { if (!props.demo) void logout(); }} disabled={!!busy}>P{!props.demo && <LogOut className="logout-icon" size={13}/>}</button>
-          : <button className="small-button" onClick={() => props.configured ? setModal("login") : setError("A grown-up needs to finish setting up this studio.")}>Sign in</button>}
+        {signedIn ? <button className="avatar" aria-label="Account settings" onClick={() => { setError(""); setProfileSaved(false); setModal("account"); }} disabled={!!busy}>{displayName.slice(0,1).toUpperCase() || "P"}</button>
+          : <a className="small-button" href="/account">Sign in</a>}
       </div>
     </header>
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setError("")}><X size={17}/></button></div>}
@@ -187,7 +191,7 @@ export function Studio(props: Props) {
           <p className="hero-description">A game, a doodle, a tiny adventure.<br className="desktop-break"/> What will you bring to life today?</p>
           <form className="idea-box" onSubmit={generate}>
             <label className="sr-only" htmlFor="idea">Describe your game idea</label>
-            <textarea ref={promptRef} id="idea" placeholder="A game where I catch stars in outer space…" value={prompt} maxLength={2000} onChange={e => setPrompt(e.target.value)} disabled={!!busy}/>
+            <textarea ref={promptRef} id="idea" placeholder="A game where I catch stars in outer space…" value={prompt} maxLength={MAX_PROMPT_CHARACTERS} onChange={e => setPrompt(e.target.value)} disabled={!!busy}/>
             <div className="idea-bottom"><span><Sparkles size={14}/>{busy === "generate" ? "Making a little magic…" : "Your imagination starts here"}</span>
               <button className="primary-button" type="submit" disabled={!prompt.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={17}/> : <>Make it <ArrowUpRight size={17}/></>}</button></div>
           </form>
@@ -206,7 +210,7 @@ export function Studio(props: Props) {
         {libraryError && <p className="inline-error" role="alert">{libraryError}</p>}
         {library.games.length ? <div className="published-grid">{library.games.map(game => <a className="published-card" href={"/play/" + game.id + "/"} aria-label={"Play " + game.title} key={game.id}>
           <div className={"published-cover art-" + game.theme}><img src={"/play/" + game.id + "/icons/192.png"} width={96} height={96} alt="" loading="lazy"/><span className="card-open"><Play size={18} fill="currentColor"/></span></div>
-          <div className="card-details"><h3>{game.title}</h3><p>{game.description}</p><span className="published-play">Play game <ArrowUpRight size={15}/></span></div>
+          <div className="card-details"><h3>{game.title}</h3><p>{game.description}</p><div className="published-meta"><span>By {game.creatorName}</span><span>Updated <time dateTime={game.updatedAt}>{new Date(game.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</time></span></div><span className="published-play">Play game <ArrowUpRight size={15}/></span></div>
         </a>)}</div> : !libraryError && <div className="empty-library"><Globe/><p>{libraryBusy ? "Opening the game library…" : "The next little world could be yours."}</p><span>Published games will appear here for everyone to play.</span></div>}
         {library.hasMore && <div className="library-more"><button className="secondary-button" disabled={libraryBusy} onClick={() => void loadLibrary(libraryOffset)}>{libraryBusy ? <><LoaderCircle className="spin" size={16}/>Loading games…</> : <>Show more games <Plus size={16}/></>}</button></div>}
       </section>}
@@ -233,13 +237,13 @@ export function Studio(props: Props) {
         <section id="studio-chat" className="chat-panel" aria-label="Game conversation"><div ref={chatScroll} className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Tell me what you'd like to change. A new character? More stars? A whole new twist?</p></div>
           {[...project.revisions].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map((r,i) => <div className="conversation" key={r.id}><div className="user-message">{r.prompt}</div><div className="studio-message"><Sparkles size={15}/><div><p>{r.description}</p><span className="version-pill"><Check size={11}/> Version {i+1} saved {r.id === project.currentRevisionId && "· current"}</span></div></div></div>)}
           {busy === "generate" && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> Making a little magic. This may take a minute…</div>}</div>
-          <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={2000} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
+          <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={MAX_PROMPT_CHARACTERS} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
         </section>
         <section id="studio-play" className="preview-panel" aria-label="Playable game preview">{current && <GamePreview revision={current} projectId={project.id}/>}<p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p></section>
       </div>
     </main>}
     {busy === "open" && <div className="loading-toast" role="status"><LoaderCircle size={17} className="spin"/> Opening your little world…</div>}
-    {modal === "login" && <Modal title="Welcome to your studio" onClose={() => { setModal(null); setPassword(""); }}><p className="modal-description">Ask a grown-up to sign in with your family's studio account.</p><form className="login-form" onSubmit={login}><label>Email<input type="email" autoComplete="username" value={email} onChange={e => setEmail(e.target.value)} required maxLength={254}/></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)} required maxLength={200}/></label>{error && <p className="inline-error" role="alert">{error}</p>}<button className="primary-button" disabled={!!busy}>{busy === "login" ? <LoaderCircle className="spin" size={17}/> : <>Open my studio <ArrowRight size={16}/></>}</button></form></Modal>}
+    {modal === "account" && <Modal title="Your account" onClose={() => setModal(null)}><p className="modal-description">Your public name appears with every game you publish.</p><form className="login-form" onSubmit={saveProfile}><label>Public name<input autoComplete="nickname" value={displayName} onChange={e => { setDisplayName(e.target.value); setProfileSaved(false); }} required maxLength={80} disabled={!!busy}/></label>{error && <p className="inline-error" role="alert">{error}</p>}<button className="primary-button" disabled={!!busy}>{busy === "profile" ? <LoaderCircle className="spin" size={17}/> : <>Save public name <Check size={16}/></>}</button>{profileSaved && <p className="profile-saved" role="status">Public name saved.</p>}</form>{!props.demo && <button className="text-button account-signout" onClick={() => void logout()} disabled={!!busy}><LogOut size={16}/>Sign out</button>}</Modal>}
     {modal === "versions" && project && <Modal title="Room to experiment" onClose={() => setModal(null)}><p className="modal-description">Go back to a favorite version. Your other versions stay saved, and your published game stays as it is.</p><div className="version-list">{project.revisions.map((r,i) => <div className="version-row" key={r.id}><div><strong>{r.title}</strong><span>{r.prompt.slice(0,100)}</span><small>{new Date(r.createdAt).toLocaleString()} {r.id === project.publishedRevisionId && "· Published"}</small></div><button className="small-button" disabled={!!busy || r.id === project.currentRevisionId} onClick={() => versionAction("restore", r.id)}>{r.id === project.currentRevisionId ? "Current" : "Restore"}</button></div>)}</div>{error && <p className="inline-error" role="alert">{error}</p>}</Modal>}
     {modal === "share" && project && <Modal title="Let your little world out" onClose={() => setModal(null)}><div className={"share-art art-" + project.theme}><GameArtwork theme={project.theme}/></div><p className="modal-description">Publishing adds your game to the public game library. Anyone can find, play, and add it to their home screen for offline adventures.</p>
       {project.publishedRevisionId && <><label className="link-label" htmlFor="play-link">Your public play link</label><div className="share-link"><input id="play-link" readOnly value={playURL} onFocus={e => e.target.select()}/><button className="icon-button" aria-label="Copy play link" onClick={async () => { try { await navigator.clipboard.writeText(playURL); setCopied(true); setTimeout(() => setCopied(false),2500); } catch { setError("Select the link to copy it manually."); } }}>{copied ? <Check size={18}/> : <Copy size={18}/>}</button></div><a className="play-link" href={playURL} target="_blank" rel="noreferrer">Open published game <ArrowUpRight size={15}/></a></>}

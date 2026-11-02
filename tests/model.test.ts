@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generationModel, generateGame, MAX_GENERATION_TOKENS } from "../src/lib/generate";
+import { generationModel, generateGame, MAX_GENERATION_TOKENS, GENERATION_TIMEOUT_MS } from "../src/lib/generate";
 import { starters } from "./fixtures/games";
 test("free model requests enforce zero-price providers", async () => {
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, fetchOriginal = globalThis.fetch;
@@ -32,11 +32,11 @@ test("free model requests enforce zero-price providers", async () => {
   }
 });
 
-test("DeepSeek is explicit, price capped, and uses low reasoning without model fallback", async () => {
+test("DeepSeek is explicit, price capped, and uses medium reasoning without model fallback", async () => {
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, originalFetch = globalThis.fetch;
   try {
     delete process.env.OPENROUTER_MODEL;
-    assert.equal(generationModel().model, "deepseek/deepseek-v4.1-flash");
+    assert.equal(generationModel().model, "~deepseek/deepseek-flash-latest");
     process.env.OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
     process.env.OPENROUTER_API_KEY = "fictional-test-key";
     let calls = 0;
@@ -47,7 +47,7 @@ test("DeepSeek is explicit, price capped, and uses low reasoning without model f
       assert.deepEqual(body.provider.max_price, { prompt: 0.30, completion: 1.20 });
       assert.equal(body.provider.sort, "price");
       assert.equal(body.provider.require_parameters, true);
-      assert.deepEqual(body.reasoning, { effort: "low", exclude: true });
+      assert.deepEqual(body.reasoning, { effort: "medium", exclude: true });
       assert.equal(body.max_tokens, MAX_GENERATION_TOKENS);
       assert.equal(body.models, undefined);
       return Response.json({ choices: [{ message: { content: JSON.stringify(starters[0]) }, finish_reason: "stop" }] });
@@ -84,6 +84,9 @@ test("provider failures explain the problem without leaking upstream data or ret
       { status: 429, error: { message: privateValue }, message: /allowance/, result: 429 },
       { status: 503, error: { message: privateValue }, message: /unavailable right now/, result: 502 },
       { status: 200, error: { code: 429, message: privateValue }, message: /allowance/, result: 429 },
+      { status: 408, error: { message: privateValue }, message: /ran out of time/, result: 504 },
+      { status: 504, error: { message: privateValue }, message: /ran out of time/, result: 504 },
+      { status: 200, error: { code: 502, message: privateValue, metadata: { error_type: "timeout" } }, message: /ran out of time/, result: 504 },
     ];
     for (const item of cases) {
       let calls = 0;
@@ -99,13 +102,68 @@ test("provider failures explain the problem without leaking upstream data or ret
     globalThis.fetch = async () => new Response(privateValue, { status: 502 });
     await assert.rejects(generateGame("test"), /unavailable right now/);
     globalThis.fetch = async () => new Response(privateValue);
-    await assert.rejects(generateGame("test"), /readable response/);
+    await assert.rejects(generateGame("test"), /unreadable response/);
     globalThis.fetch = async () => Response.json(null);
     await assert.rejects(generateGame("test"), /didn't finish/);
+    globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: "error", message: { content: "PRIVATE partial game" }, error: { code: 504, metadata: { error_type: "timeout" } } }] });
+    await assert.rejects(generateGame("test"), /ran out of time/);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = originalKey;
     if (originalModel === undefined) delete process.env.OPENROUTER_MODEL; else process.env.OPENROUTER_MODEL = originalModel;
+  }
+});
+
+test("timeouts after successful headers are distinguished from malformed JSON and interrupted connections",async()=>{
+  const previousModel=process.env.OPENROUTER_MODEL,previousKey=process.env.OPENROUTER_API_KEY;
+  const originalFetch=globalThis.fetch,originalTimeout=AbortSignal.timeout,originalWarn=console.warn;
+  const diagnostics:unknown[][]=[];
+  let calls=0;
+  try {
+    process.env.OPENROUTER_MODEL="~deepseek/deepseek-flash-latest";
+    process.env.OPENROUTER_API_KEY="PRIVATE key";
+    console.warn=(...args:unknown[])=>{diagnostics.push(args);};
+    for(const [error,status,pattern] of [
+      [new DOMException("PRIVATE timeout","TimeoutError"),504,/ran out of time/],
+      [new DOMException("PRIVATE abort","AbortError"),504,/ran out of time/],
+      [new TypeError("PRIVATE disconnected"),502,/connection.*interrupted/i],
+      [new SyntaxError("PRIVATE malformed payload"),502,/unreadable response/],
+    ] as const) {
+      globalThis.fetch=async()=>{calls++;const response=new Response("",{headers:{"x-generation-id":"gen-test-123"}});response.json=async()=>{throw error;};return response;};
+      await assert.rejects(generateGame("PRIVATE idea"),e=>{
+        assert.equal((e as {status:number}).status,status);assert.match((e as Error).message,pattern);return true;
+      });
+    }
+    assert.equal(calls,4); // No automatic retries.
+    assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);
+    const info=diagnostics[0][1] as Record<string,unknown>;
+    assert.equal(info.category,"timeout");assert.equal(info.stage,"body");assert.equal(info.status,200);assert.equal(info.generationId,"gen-test-123");
+    // Some fetch implementations report a TypeError when the shared deadline
+    // aborts the body. The signal, rather than the error name, is authoritative.
+    AbortSignal.timeout=(duration:number)=>{assert.equal(duration,GENERATION_TIMEOUT_MS);return AbortSignal.abort(new DOMException("PRIVATE deadline","TimeoutError"));};
+    globalThis.fetch=async()=>{const response=new Response("");response.json=async()=>{throw new TypeError("PRIVATE body error");};return response;};
+    await assert.rejects(generateGame("PRIVATE idea"),e=>{assert.equal((e as {status:number}).status,504);return true;});
+    assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);
+  } finally {
+    globalThis.fetch=originalFetch;AbortSignal.timeout=originalTimeout;console.warn=originalWarn;
+    if(previousModel===undefined)delete process.env.OPENROUTER_MODEL;else process.env.OPENROUTER_MODEL=previousModel;
+    if(previousKey===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=previousKey;
+  }
+});
+
+test("connection failures before headers are reported separately from deadline expiry",async()=>{
+  const key=process.env.OPENROUTER_API_KEY,model=process.env.OPENROUTER_MODEL,fetcher=globalThis.fetch,warn=console.warn;
+  try {
+    process.env.OPENROUTER_API_KEY="fictional-key";process.env.OPENROUTER_MODEL="~deepseek/deepseek-flash-latest";
+    console.warn=()=>{};
+    globalThis.fetch=async()=>{throw new TypeError("connection failed");};
+    await assert.rejects(generateGame("Fictional idea"),e=>{assert.equal((e as {status:number}).status,503);assert.match((e as Error).message,/couldn't connect/);return true;});
+    globalThis.fetch=async()=>{throw new DOMException("timed out","TimeoutError");};
+    await assert.rejects(generateGame("Fictional idea"),e=>{assert.equal((e as {status:number}).status,504);return true;});
+  } finally {
+    globalThis.fetch=fetcher;console.warn=warn;
+    if(key===undefined)delete process.env.OPENROUTER_API_KEY;else process.env.OPENROUTER_API_KEY=key;
+    if(model===undefined)delete process.env.OPENROUTER_MODEL;else process.env.OPENROUTER_MODEL=model;
   }
 });
 

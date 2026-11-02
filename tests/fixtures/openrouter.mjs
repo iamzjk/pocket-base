@@ -3,9 +3,19 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async function(input, init) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    if (url !== "https://openrouter.ai/api/v1/chat/completions") return originalFetch(input, init);
+    if (url !== "https://openrouter.ai/api/v1/chat/completions") {
+      if (!["127.0.0.1","localhost","[::1]"].includes(new URL(url).hostname))
+        throw new Error("Browser tests may only contact local test services.");
+      return originalFetch(input, init);
+    }
     const body = JSON.parse(String(init.body));
     const prompt = body.messages.at(-1).content;
+    if (prompt.includes("timeout model")) return new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(" "));
+        queueMicrotask(() => controller.error(new DOMException("Fictional body timeout", "AbortError")));
+      },
+    }), { headers: { "Content-Type": "application/json", "X-Generation-Id": "gen-fictional-timeout" } });
     if (prompt.includes("busy model")) return new Response("Fictional upstream capacity error", { status: 429 });
     const updated = body.messages.length > 2;
     const color = updated ? "#b49bdf" : "#9ed9c7";

@@ -2,16 +2,23 @@ import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { StudioError } from "./errors";
+import { classicGames, classicListings } from "./classic-games";
+import { publicName } from "./profile";
 import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary } from "./types";
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
-interface State { projects: Project[]; revisions: Revision[]; attempts: { id: string; ownerId: string; at: string; finished: boolean }[] }
+interface State { projects: Project[]; revisions: Revision[]; profiles?: Record<string, string>; attempts: { id: string; ownerId: string; at: string; finished: boolean }[] }
 const globalQueue = globalThis as typeof globalThis & { pocketQueue?: Promise<unknown> };
 export function initialState(): State {
   return { projects: [], revisions: [], attempts: [] };
 }
 export class DemoStore implements Store {
   constructor(private ownerId = DEMO_OWNER, private directory = process.env.POCKET_BASE_DATA_DIR || path.join(process.cwd(), ".local")) {}
+  async profile() { return this.transaction(s => ({ displayName: s.profiles?.[this.ownerId] || "Local creator" })); }
+  async saveProfile(displayName: string) {
+    const name = publicName(displayName);
+    return this.transaction(s => { (s.profiles ||= {})[this.ownerId] = name; return { displayName: name }; }, true);
+  }
   private async transaction<T>(fn: (state: State) => T, mutate = false): Promise<T> {
     const task = (globalQueue.pocketQueue || Promise.resolve()).catch(() => {}).then(async () => {
       await mkdir(this.directory, { recursive: true });
@@ -65,13 +72,16 @@ export class DemoStore implements Store {
       const p = this.owned(s, id);
       const r = s.revisions.find(r => r.id === revisionId && r.projectId === p.id);
       if (!r) throw new StudioError("That version couldn't be found.", 404);
-      if (action === "publish") p.publishedRevisionId = r.id;
+      if (action === "publish") {
+        if (p.publishedRevisionId !== r.id) p.publishedAt = new Date().toISOString();
+        p.publishedRevisionId = r.id;
+      }
       else Object.assign(p, { currentRevisionId: r.id, title: r.title, description: r.description, theme: r.theme });
       p.updatedAt = new Date().toISOString();
       return this.view(s, p);
     }, true);
   }
-  async unpublish(id: string) { await this.transaction(s => { this.owned(s, id).publishedRevisionId = null; }, true); }
+  async unpublish(id: string) { await this.transaction(s => { const p = this.owned(s, id); p.publishedRevisionId = null; p.publishedAt = null; }, true); }
   async reserveGeneration() {
     return this.transaction(s => {
       const today = new Date().toISOString().slice(0, 10);
@@ -88,6 +98,8 @@ export class DemoStore implements Store {
   async finishGeneration(id: string) { await this.transaction(s => { const a = s.attempts.find(a => a.id === id && a.ownerId === this.ownerId); if (a) a.finished = true; }, true); }
   async publicGame(id: string): Promise<PublicGame | null> {
     return this.transaction(s => {
+      const classic = classicGames.find(g => g.id === id);
+      if (classic) { const { creatorName: _name, updatedAt: _date, ...game } = classic; return game; }
       const p = s.projects.find(p => p.id === id);
       const r = p && s.revisions.find(r => r.id === p.publishedRevisionId && r.projectId === p.id);
       return p && r ? { id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, html: r.html, iconSvg: r.iconSvg || null } : null;
@@ -95,12 +107,14 @@ export class DemoStore implements Store {
   }
   async publishedGames(offset = 0): Promise<GameLibrary> {
     return this.transaction(s => {
-      const published = s.projects.flatMap(p => {
+      const community = s.projects.filter(p => !classicGames.some(g => g.id === p.id)).flatMap(p => {
         const r = s.revisions.find(r => r.id === p.publishedRevisionId && r.projectId === p.id);
-        return r ? [{ id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, createdAt: r.createdAt }] : [];
-      }).sort((a,b) => b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id));
+        return r ? [{ id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme,
+          creatorName: s.profiles?.[p.ownerId] || "Local creator", updatedAt: p.publishedAt || r.createdAt }] : [];
+      });
+      const published = [...classicListings, ...community].sort((a,b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
       return {
-        games: published.slice(offset, offset + LIBRARY_PAGE_SIZE).map(({ createdAt: _date, ...game }) => game),
+        games: published.slice(offset, offset + LIBRARY_PAGE_SIZE),
         hasMore: published.length > offset + LIBRARY_PAGE_SIZE,
       };
     });

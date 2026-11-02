@@ -19,6 +19,7 @@ export interface Project {
   theme: Theme;
   currentRevisionId: string;
   publishedRevisionId: string | null;
+  publishedAt?: string | null;
   updatedAt: string;
   createdAt: string;
 }
@@ -32,7 +33,8 @@ export interface PublicGame {
   html: string;
   iconSvg?: string | null;
 }
-export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme">;
+export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme"> & { creatorName: string; updatedAt: string };
+export interface CreatorProfile { displayName: string }
 export interface GameLibrary { games: PublishedGame[]; hasMore: boolean }
 export const LIBRARY_PAGE_SIZE = 24;
 export interface GeneratedGame {
@@ -48,6 +50,8 @@ export interface SaveInput extends GeneratedGame {
   prompt: string;
 }
 export interface Store {
+  profile(): Promise<CreatorProfile>;
+  saveProfile(displayName: string): Promise<CreatorProfile>;
   list(): Promise<Project[]>;
   detail(id: string): Promise<ProjectDetail | null>;
   save(input: SaveInput): Promise<ProjectDetail>;

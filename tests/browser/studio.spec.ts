@@ -5,6 +5,7 @@ import os from "node:os";
 import { DemoStore, DEMO_OWNER } from "../../src/lib/demo-store";
 import { starters, starterIds } from "../fixtures/games";
 import { PLAYER_VERSION } from "../../src/lib/pwa";
+import { classicGames } from "../../src/lib/classic-games";
 
 function store() { return new DemoStore(DEMO_OWNER, process.env.POCKET_BASE_E2E_DATA_DIR); }
 const evidence = process.env.AGENT_DESK_EVIDENCE_DIR || path.join(os.tmpdir(), "pocket-base-evidence");
@@ -433,12 +434,12 @@ test("the shared game library shows other owners' published versions and refresh
   await page.goto("/library");
   const library = page.getByRole("region", { name: "Game library" });
   await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toBeVisible();
-  await expect(page.getByText("v1.0.0", { exact: true })).toBeVisible();
+  await expect(page.getByText("v1.1.0", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Start with / })).toHaveCount(0);
   expect((await page.content()).includes("PRIVATE community")).toBe(false);
   const result = await (await request.get("/api/library")).json();
   const listed = result.games.find((g: { id: string }) => g.id === game.id);
-  expect(Object.keys(listed).sort()).toEqual(["description","id","revisionId","theme","title"]);
+  expect(Object.keys(listed).sort()).toEqual(["creatorName","description","id","revisionId","theme","title","updatedAt"]);
   expect(listed.title).toBe("Community garden fixture"); expect(listed.revisionId).toBe(game.currentRevisionId);
   expect((await request.get("/api/projects/" + game.id)).status()).toBe(404);
   expect((await request.post("/api/projects", { data: { starter: "stars" } })).status()).toBe(405);
@@ -476,4 +477,70 @@ test("the game library paginates and recovers from refresh errors", async ({ pag
   await expect(library.getByRole("alert")).toHaveCount(0);
   await expect(library.locator(".published-card")).toHaveCount(24);
   for (const offset of ["-1","bad","2147483648"]) expect((await request.get("/api/library?offset=" + offset)).status()).toBe(400);
+});
+
+test("original catalog games show public metadata in one phone column and have distinct install identities",async({page,request})=>{
+  await page.goto("/library");
+  for(const viewport of [{width:320,height:568},{width:390,height:844},{width:760,height:900},{width:768,height:1024},{width:1440,height:900}]) {
+    await page.setViewportSize(viewport);
+    const columns=await page.locator(".published-grid").evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(" ").length);
+    expect(columns).toBe(viewport.width<=760 ? 1 : viewport.width<=1050 ? 3 : 4);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  }
+  const result=await(await request.get("/api/library?offset=24")).json();
+  // Earlier tests publish enough games that the originals may be on a later page.
+  const all=[...(await(await request.get("/api/library")).json()).games,...result.games];
+  for(const classic of classicGames) {
+    const listed=all.find((g:{id:string})=>g.id===classic.id);
+    expect(listed?.creatorName).toBe("Pocket Base");
+    expect((await request.get("/play/"+classic.id+"/game.json")).status()).toBe(200);
+  }
+  const icon=page.locator('link[rel="apple-touch-icon"]');
+  expect(await icon.getAttribute("sizes")).toBe("180x180");
+  const rootManifest=await(await request.get("/manifest.webmanifest")).json();
+  expect(rootManifest.name).toBe("Pocket Base");expect(rootManifest.id).toBe("/");expect(rootManifest.display).toBe("standalone");
+  const gameManifest=await(await request.get("/play/"+classicGames[0].id+"/manifest.webmanifest")).json();
+  expect(gameManifest.id).not.toBe(rootManifest.id);
+  for(const asset of ["/favicon.ico",await icon.getAttribute("href"),...rootManifest.icons.map((i:{src:string})=>i.src)]) {
+    expect((await request.get(asset!)).status()).toBe(200);
+  }
+  await page.setViewportSize({width:390,height:844});
+  await page.getByRole("button",{name:"Account settings"}).click();
+  await page.getByLabel("Public name",{exact:true}).fill("Fictional family studio");
+  await page.getByRole("button",{name:"Save public name"}).click();
+  await expect(page.getByRole("status")).toContainText("Public name saved");
+});
+
+test("creation and edit requests accept 5,000 characters and reject larger prompts",async({page,request})=>{
+  const headers={Origin:"http://127.0.0.1:3217","Content-Type":"application/json"};
+  expect((await request.post("/api/generate",{headers,data:{prompt:"a".repeat(5001)}})).status()).toBe(400);
+  const created=await request.post("/api/generate",{headers,data:{prompt:"星".repeat(5000)}});
+  expect(created.status()).toBe(200);
+  const game=await created.json();
+  expect(game.revisions[0].prompt.length).toBe(5000);
+  const escaped=JSON.stringify({prompt:"星".repeat(5000),projectId:game.id,baseRevisionId:game.currentRevisionId}).replaceAll("星","\\u661f");
+  const edited=await request.post("/api/generate",{headers,data:escaped});
+  expect(edited.status()).toBe(200);
+  expect((await edited.json()).revisions).toHaveLength(2);
+  await page.goto("/");
+  await expect(page.locator("#idea")).toHaveAttribute("maxlength","5000");
+  await page.goto("/?game="+game.id);
+  await expect(page.locator("#change")).toHaveAttribute("maxlength","5000");
+});
+
+test("timeouts while reading successful provider responses keep new and edited games safe",async({page,request})=>{
+  const before=await store().list();
+  const created=await request.post("/api/generate",{headers:{Origin:"http://127.0.0.1:3217"},data:{prompt:"timeout model"}});
+  expect(created.status()).toBe(504);
+  expect((await created.json()).error).toContain("ran out of time");
+  expect((await store().list()).length).toBe(before.length);
+  const game=await store().save({...starters[0],prompt:"Fictional safe original"});
+  await page.goto("/?game="+game.id);
+  await page.locator("#change").fill("timeout model");
+  await page.getByRole("button",{name:"Make this change"}).click();
+  await expect(page.locator(".error-banner")).toContainText("ran out of time");
+  const unchanged=await store().detail(game.id);
+  expect(unchanged?.currentRevisionId).toBe(game.currentRevisionId);
+  expect(unchanged?.revisions).toHaveLength(1);
+  await expect(page.getByRole("button",{name:"Make this change"})).toBeEnabled();
 });

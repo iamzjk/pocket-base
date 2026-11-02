@@ -1,3 +1,5 @@
+import { MAX_MUTATION_BYTES } from "./limits";
+
 export class StudioError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
@@ -22,7 +24,7 @@ export async function readMutation(request: Request): Promise<Record<string, unk
   if (request.headers.get("origin") !== expectedOrigin) throw new StudioError("Please make changes from your studio.", 403);
   if (!request.headers.get("content-type")?.startsWith("application/json")) throw new StudioError("Please send a JSON request.");
   const text = await request.text();
-  if (Buffer.byteLength(text) > 16_000) throw new StudioError("That request is a little too long.", 413);
+  if (Buffer.byteLength(text) > MAX_MUTATION_BYTES) throw new StudioError("That request is a little too long.", 413);
   try {
     const body = JSON.parse(text);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new Error();
