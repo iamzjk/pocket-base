@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, type SaveInput, type Store, type PublicGame, type GameLibrary } from "./types";
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
+import { libraryQuery, normalizeLibrary } from "./library";
 
 type Row = Record<string, unknown>;
 function project(row: Row): Project {
@@ -25,6 +26,7 @@ export function databaseError(error: { message: string } | null) {
   if (error.message.includes("PS_CONFLICT")) throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
   if (error.message.includes("PS_BUSY")) throw new StudioError("A game is already being made. Give it a moment.", 409);
   if (error.message.includes("PS_QUOTA")) throw new StudioError("That's today's game-making allowance. Your games are still here to play.", 429);
+  if (error.message.includes("PS_BAD_OPEN")) throw new StudioError("That game visit couldn't be recorded.");
   throw new StudioError("Your studio couldn't reach its saved games. Try again in a moment.", 503);
 }
 export class SupabaseStore implements Store {
@@ -80,9 +82,15 @@ export class SupabaseStore implements Store {
     databaseError(error);
     return data || null;
   }
-  async publishedGames(offset = 0): Promise<GameLibrary> {
-    const { data, error } = await this.client.rpc("published_games", { p_offset: offset, p_limit: LIBRARY_PAGE_SIZE });
+  async publishedGames(offset = 0, query = ""): Promise<GameLibrary> {
+    const search = libraryQuery(query);
+    const { data, error } = await this.client.rpc("published_games", { p_offset: offset, p_limit: LIBRARY_PAGE_SIZE,
+      ...(search ? { p_query: search } : {}) });
     databaseError(error);
-    return data;
+    return normalizeLibrary(data);
+  }
+  async recordGameOpen(id: string, visitorId: string) {
+    const { error } = await this.client.rpc("record_game_open", { p_id: id, p_visitor_id: visitorId });
+    databaseError(error);
   }
 }

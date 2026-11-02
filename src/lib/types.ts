@@ -33,9 +33,9 @@ export interface PublicGame {
   html: string;
   iconSvg?: string | null;
 }
-export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme"> & { creatorName: string; updatedAt: string };
+export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme"> & { creatorName: string; updatedAt: string; playCount: number };
 export interface CreatorProfile { displayName: string }
-export interface GameLibrary { games: PublishedGame[]; hasMore: boolean }
+export interface GameLibrary { games: PublishedGame[]; hasMore: boolean; leaderboard: PublishedGame[] }
 export const LIBRARY_PAGE_SIZE = 24;
 export interface GeneratedGame {
   title: string;
@@ -60,5 +60,6 @@ export interface Store {
   reserveGeneration(): Promise<string>;
   finishGeneration(id: string): Promise<void>;
   publicGame(id: string): Promise<PublicGame | null>;
-  publishedGames(offset?: number): Promise<GameLibrary>;
+  recordGameOpen(id: string, visitorId: string): Promise<void>;
+  publishedGames(offset?: number, query?: string): Promise<GameLibrary>;
 }

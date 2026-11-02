@@ -434,12 +434,12 @@ test("the shared game library shows other owners' published versions and refresh
   await page.goto("/library");
   const library = page.getByRole("region", { name: "Game library" });
   await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toBeVisible();
-  await expect(page.getByText("v1.1.0", { exact: true })).toBeVisible();
+  await expect(page.getByText("v1.2.2", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Start with / })).toHaveCount(0);
   expect((await page.content()).includes("PRIVATE community")).toBe(false);
   const result = await (await request.get("/api/library")).json();
   const listed = result.games.find((g: { id: string }) => g.id === game.id);
-  expect(Object.keys(listed).sort()).toEqual(["creatorName","description","id","revisionId","theme","title","updatedAt"]);
+  expect(Object.keys(listed).sort()).toEqual(["creatorName","description","id","playCount","revisionId","theme","title","updatedAt"]);
   expect(listed.title).toBe("Community garden fixture"); expect(listed.revisionId).toBe(game.currentRevisionId);
   expect((await request.get("/api/projects/" + game.id)).status()).toBe(404);
   expect((await request.post("/api/projects", { data: { starter: "stars" } })).status()).toBe(405);

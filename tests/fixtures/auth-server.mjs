@@ -49,10 +49,15 @@ const server=createServer(async(req,res)=>{
     return account?.password===input.password ? send(200,issue(account)) : send(400,{code:"invalid_credentials",msg:"Test sign-in failed"});
   }
   if(url.pathname==="/rest/v1/projects")return send(200,[]);
-  if(url.pathname==="/rest/v1/rpc/published_games")return send(200,{games:[],hasMore:false});
+  // Keep this double on the older schema to exercise compatibility during rollout.
+  if(url.pathname==="/rest/v1/rpc/published_games")return send(200,{games:[{
+    id:"60000000-0000-4000-8000-000000000001",revisionId:"60000000-0000-4000-8000-000000000002",
+    title:"Legacy library fixture",description:"Fictional older listing",theme:"mint",
+    creatorName:"Fictional creator",updatedAt:"2026-01-01T00:00:00Z"
+  }],hasMore:false});
   if(url.pathname==="/rest/v1/rpc/creator_profile")return account ? send(200,{displayName:account.name}) : send(401,{});
   if(url.pathname==="/rest/v1/rpc/save_creator_profile" && account) {account.name=input.p_display_name;return send(200,{displayName:account.name});}
-  return send(404,{code:"fixture_not_found"});
+  return send(404,{code:"fixture_not_found",message:"Fictional endpoint is unavailable."});
 });
 server.listen(3219,"127.0.0.1",()=>{
   const child=spawn(process.execPath,["node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port","3218"],{

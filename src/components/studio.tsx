@@ -1,21 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw } from "lucide-react";
+import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw, Search } from "lucide-react";
 import { PocketMark, GameArtwork } from "./artwork";
-import type { Project, ProjectDetail, Revision, GameLibrary, CreatorProfile } from "@/lib/types";
+import type { Project, ProjectDetail, Revision, CreatorProfile } from "@/lib/types";
 import { startGame } from "../../public/sandbox.js";
-import { MAX_PROMPT_CHARACTERS } from "@/lib/limits";
+import { MAX_LIBRARY_QUERY_CHARACTERS, MAX_PROMPT_CHARACTERS } from "@/lib/limits";
+import { normalizeLibrary, type LibraryResponse } from "@/lib/library";
 
-type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: GameLibrary; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string; initialLibraryError?: string };
-async function api<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, body === undefined ? { cache: "no-store" } : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string; initialLibraryError?: string };
+async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(path, body === undefined ? { cache: "no-store", signal } : {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal,
   });
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || "Something didn't finish. Please try again.");
   return value;
 }
+function playCountLabel(count: number) { return count.toLocaleString("en-US") + (count === 1 ? " play" : " plays"); }
 function GamePreview({ revision, projectId }: { revision: Revision; projectId: string }) {
   const ref = useRef<HTMLIFrameElement>(null);
   const [state, setState] = useState<"loading" | "ready" | "error" | "timeout">("loading");
@@ -43,10 +45,19 @@ function Modal({ title, children, onClose }: { title: string; children: React.Re
 
 export function Studio(props: Props) {
   const [projects, setProjects] = useState(props.initialProjects);
-  const [library, setLibrary] = useState(props.initialLibrary);
+  const [libraryResponse, setLibrary] = useState(props.initialLibrary);
+  const library = normalizeLibrary(libraryResponse);
   const [libraryError, setLibraryError] = useState(props.initialLibraryError || "");
   const [libraryBusy, setLibraryBusy] = useState(false);
   const [libraryOffset, setLibraryOffset] = useState(props.initialLibrary.games.length);
+  const [librarySearch, setLibrarySearch] = useState("");
+  const [libraryResultsQuery, setLibraryResultsQuery] = useState("");
+  const query = librarySearch.trim();
+  const libraryReady = libraryResultsQuery === query;
+  const libraryQueryRef = useRef("");
+  const librarySearchRef = useRef<HTMLInputElement>(null);
+  const libraryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const libraryController = useRef<AbortController | null>(null);
   const librarySequence = useRef(0);
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [prompt, setPrompt] = useState("");
@@ -68,18 +79,42 @@ export function Studio(props: Props) {
     setProject(p);
     setProjects(list => [p, ...list.filter(x => x.id !== p.id)]);
   }, []);
-  const loadLibrary = useCallback(async (offset = 0) => {
+  const loadLibrary = useCallback(async (offset = 0, query = libraryQueryRef.current) => {
     const sequence = ++librarySequence.current;
+    if (libraryTimer.current) clearTimeout(libraryTimer.current);
+    libraryTimer.current = null;
+    libraryController.current?.abort();
+    const controller = new AbortController();
+    libraryController.current = controller;
     setLibraryBusy(true); setLibraryError("");
     try {
-      const result = await api<GameLibrary>("/api/library?offset=" + offset);
+      const result = normalizeLibrary(await api<LibraryResponse>("/api/library?offset=" + offset
+        + (query ? "&q=" + encodeURIComponent(query) : ""), undefined, controller.signal));
       if (sequence !== librarySequence.current) return;
       setLibrary(current => ({ ...result, games: offset
         ? [...new Map([...current.games, ...result.games].map(game => [game.id, game])).values()]
         : result.games }));
       setLibraryOffset(offset + result.games.length);
+      setLibraryResultsQuery(query);
     } catch (e) { if (sequence === librarySequence.current) setLibraryError((e as Error).message); }
     finally { if (sequence === librarySequence.current) setLibraryBusy(false); }
+  }, []);
+  function searchLibrary(value: string) {
+    setLibrarySearch(value);
+    const query = value.trim();
+    if (query === libraryQueryRef.current) return;
+    libraryQueryRef.current = query;
+    // Invalidate immediately, including during the debounce, so an older page cannot replace this search.
+    librarySequence.current++;
+    libraryController.current?.abort();
+    if (libraryTimer.current) clearTimeout(libraryTimer.current);
+    setLibraryBusy(true); setLibraryError("");
+    libraryTimer.current = setTimeout(() => void loadLibrary(0, query), 250);
+  }
+  useEffect(() => () => {
+    librarySequence.current++;
+    libraryController.current?.abort();
+    if (libraryTimer.current) clearTimeout(libraryTimer.current);
   }, []);
   const openProject = useCallback(async (id: string, push = true) => {
     const sequence = ++loadSequence.current;
@@ -207,12 +242,37 @@ export function Studio(props: Props) {
       {props.view === "library" && <section className="published-section" aria-label="Game library" aria-busy={libraryBusy}>
         <div className="section-heading"><div><div className="eyebrow subdued">MADE HERE. PLAYED EVERYWHERE.</div><h2>Game library</h2></div><button className="text-button" disabled={libraryBusy} onClick={() => void loadLibrary()}><RotateCcw size={15} className={libraryBusy ? "spin" : ""}/>Refresh</button></div>
         <p className="library-description">Games published by everyone. Pick one and play — no sign-in needed.</p>
+        <form className="library-search" role="search" aria-label="Search games" onSubmit={event => { event.preventDefault(); void loadLibrary(); }}>
+          <label htmlFor="library-search">Search games</label>
+          <div className="library-search-field"><Search size={19} aria-hidden="true"/>
+            <input ref={librarySearchRef} id="library-search" type="search" placeholder="Title, description, or creator" value={librarySearch}
+              maxLength={MAX_LIBRARY_QUERY_CHARACTERS} onChange={event => searchLibrary(event.target.value)}
+              onKeyDown={event => { if (event.key === "Escape") { event.preventDefault(); searchLibrary(""); } }}/>
+            {librarySearch && <button className="icon-button" type="button" aria-label="Clear search" onClick={() => { searchLibrary(""); librarySearchRef.current?.focus(); }}><X size={18}/></button>}
+          </div>
+        </form>
         {libraryError && <p className="inline-error" role="alert">{libraryError}</p>}
-        {library.games.length ? <div className="published-grid">{library.games.map(game => <a className="published-card" href={"/play/" + game.id + "/"} aria-label={"Play " + game.title} key={game.id}>
+        {!query && <section className="leaderboard" aria-label="Most played">
+          <div className="leaderboard-heading"><h3>Most played</h3><span>All time · Top 10</span></div>
+          <p className="leaderboard-note">Counted when a game opens online. Repeat opens within 30 minutes count once per browser.</p>
+          {library.leaderboard.length ? <ol className="leaderboard-list">{library.leaderboard.map((game,index) => <li key={game.id}>
+            <a href={"/play/" + game.id + "/"} aria-label={"Play " + game.title + " · rank " + (index + 1)}>
+              <span className="leaderboard-rank" aria-hidden="true">{index + 1}</span>
+              <img src={"/play/" + game.id + "/icons/192.png"} width={44} height={44} alt="" loading="lazy"/>
+              <span className="leaderboard-info"><strong>{game.title}</strong><span>By {game.creatorName}</span></span>
+              <span className="leaderboard-count">{playCountLabel(game.playCount)}</span>
+            </a>
+          </li>)}</ol> : <p className="leaderboard-empty">{libraryError ? "Rankings couldn't load. Try refreshing." : "Play a game to start the leaderboard."}</p>}
+        </section>}
+        <h3 className="recent-games-heading">{query ? "Search results" : "Recently updated"}</h3>
+        <p className="library-search-status" role="status">{query && !libraryError ? libraryBusy ? "Searching games…"
+          : libraryReady ? library.games.length + (library.hasMore ? "+" : "") + (library.games.length === 1 ? " game found" : " games found") : "" : ""}</p>
+        {libraryReady && library.games.length ? <div className="published-grid">{library.games.map(game => <a className="published-card" href={"/play/" + game.id + "/"} aria-label={"Play " + game.title} key={game.id}>
           <div className={"published-cover art-" + game.theme}><img src={"/play/" + game.id + "/icons/192.png"} width={96} height={96} alt="" loading="lazy"/><span className="card-open"><Play size={18} fill="currentColor"/></span></div>
-          <div className="card-details"><h3>{game.title}</h3><p>{game.description}</p><div className="published-meta"><span>By {game.creatorName}</span><span>Updated <time dateTime={game.updatedAt}>{new Date(game.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</time></span></div><span className="published-play">Play game <ArrowUpRight size={15}/></span></div>
-        </a>)}</div> : !libraryError && <div className="empty-library"><Globe/><p>{libraryBusy ? "Opening the game library…" : "The next little world could be yours."}</p><span>Published games will appear here for everyone to play.</span></div>}
-        {library.hasMore && <div className="library-more"><button className="secondary-button" disabled={libraryBusy} onClick={() => void loadLibrary(libraryOffset)}>{libraryBusy ? <><LoaderCircle className="spin" size={16}/>Loading games…</> : <>Show more games <Plus size={16}/></>}</button></div>}
+          <div className="card-details"><h3>{game.title}</h3><p>{game.description}</p><div className="published-meta"><span>By {game.creatorName}</span><span>Updated <time dateTime={game.updatedAt}>{new Date(game.updatedAt).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}</time></span><span className="published-count"><Play size={12} aria-hidden="true"/>{playCountLabel(game.playCount)}</span></div><span className="published-play">Play game <ArrowUpRight size={15}/></span></div>
+        </a>)}</div> : !libraryError && <div className="empty-library">{query ? <Search/> : <Globe/>}<p>{libraryBusy ? query ? "Searching the game library…" : "Opening the game library…"
+          : query ? "No games found" : "The next little world could be yours."}</p><span>{query ? "Try a different title, description, or creator name." : "Published games will appear here for everyone to play."}</span></div>}
+        {libraryReady && library.hasMore && <div className="library-more"><button className="secondary-button" disabled={libraryBusy} onClick={() => void loadLibrary(libraryOffset)}>{libraryBusy ? <><LoaderCircle className="spin" size={16}/>Loading games…</> : <>Show more games <Plus size={16}/></>}</button></div>}
       </section>}
       {props.view === "studio" && <><section className="library-section">
         <div className="section-heading"><div><div className="eyebrow subdued">A HOME FOR YOUR IMAGINATION</div><h2>Your little worlds <span className="count">{projects.length}</span></h2></div><button className="text-button" onClick={() => { window.scrollTo({ top: 0, behavior: "smooth" }); promptRef.current?.focus(); }}><Plus size={16}/> New idea</button></div>

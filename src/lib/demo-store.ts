@@ -1,13 +1,19 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { StudioError } from "./errors";
+import { requireId, StudioError } from "./errors";
 import { classicGames, classicListings } from "./classic-games";
 import { publicName } from "./profile";
+import { libraryQuery } from "./library";
 import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary } from "./types";
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
-interface State { projects: Project[]; revisions: Revision[]; profiles?: Record<string, string>; attempts: { id: string; ownerId: string; at: string; finished: boolean }[] }
+interface State {
+  projects: Project[]; revisions: Revision[]; profiles?: Record<string, string>;
+  attempts: { id: string; ownerId: string; at: string; finished: boolean }[];
+  playCounts?: Record<string, number>;
+  playVisitors?: { gameId: string; visitorId: string; countedAt: number }[];
+}
 const globalQueue = globalThis as typeof globalThis & { pocketQueue?: Promise<unknown> };
 export function initialState(): State {
   return { projects: [], revisions: [], attempts: [] };
@@ -105,18 +111,39 @@ export class DemoStore implements Store {
       return p && r ? { id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme, html: r.html, iconSvg: r.iconSvg || null } : null;
     });
   }
-  async publishedGames(offset = 0): Promise<GameLibrary> {
+  async publishedGames(offset = 0, query = ""): Promise<GameLibrary> {
+    const search = libraryQuery(query).toLowerCase();
     return this.transaction(s => {
       const community = s.projects.filter(p => !classicGames.some(g => g.id === p.id)).flatMap(p => {
         const r = s.revisions.find(r => r.id === p.publishedRevisionId && r.projectId === p.id);
         return r ? [{ id: p.id, revisionId: r.id, title: r.title, description: r.description, theme: r.theme,
           creatorName: s.profiles?.[p.ownerId] || "Local creator", updatedAt: p.publishedAt || r.createdAt }] : [];
       });
-      const published = [...classicListings, ...community].sort((a,b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      const published = [...classicListings, ...community].map(game => ({ ...game, playCount: s.playCounts?.[game.id] || 0 }))
+        .sort((a,b) => b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id));
+      const matches = published.filter(game => [game.title, game.description, game.creatorName]
+        .some(value => value.toLowerCase().includes(search)));
       return {
-        games: published.slice(offset, offset + LIBRARY_PAGE_SIZE),
-        hasMore: published.length > offset + LIBRARY_PAGE_SIZE,
+        games: matches.slice(offset, offset + LIBRARY_PAGE_SIZE),
+        hasMore: matches.length > offset + LIBRARY_PAGE_SIZE,
+        leaderboard: published.filter(game => game.playCount > 0).sort((a,b) => b.playCount - a.playCount
+          || b.updatedAt.localeCompare(a.updatedAt) || a.id.localeCompare(b.id)).slice(0,10),
       };
     });
+  }
+  async recordGameOpen(id: string, visitorId: string) {
+    id = requireId(id).toLowerCase();
+    visitorId = requireId(visitorId).toLowerCase();
+    await this.transaction(s => {
+      const project = s.projects.find(p => p.id === id);
+      if (!classicGames.some(game => game.id === id) && !s.revisions.some(r => r.id === project?.publishedRevisionId && r.projectId === id))
+        throw new StudioError("This game isn't published right now.", 404);
+      const now = Date.now();
+      s.playVisitors = (s.playVisitors || []).filter(visit => visit.countedAt > now - 30 * 60_000);
+      if (s.playVisitors.some(visit => visit.gameId === id && visit.visitorId === visitorId)) return;
+      s.playVisitors.push({ gameId: id, visitorId, countedAt: now });
+      const counts = s.playCounts ||= {};
+      counts[id] = (counts[id] || 0) + 1;
+    }, true);
   }
 }

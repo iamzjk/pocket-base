@@ -142,6 +142,18 @@
 
 /* Published games belong to the shared library; editing stays in the studio. */
 .library-description{font-size:14px;line-height:1.7;color:#88768f;margin:-8px 0 24px}
+.library-search{max-width:560px;margin:0 0 28px}
+.library-search>label{display:block;font-size:13px;font-weight:650;margin:0 0 8px}
+.library-search-field{display:flex;align-items:center;gap:10px;min-height:48px;padding:0 6px 0 14px;border:1px solid var(--line);border-radius:12px;background:#fffdf9;color:#88768f}
+.library-search-field:focus-within{border-color:var(--purple);box-shadow:0 0 0 2px #9470b41a}
+.library-search-field>svg{flex-shrink:0}
+.library-search input{min-width:0;width:100%;min-height:46px;border:0;padding:10px 0;background:transparent;font-size:16px;color:var(--ink);outline:none}
+.library-search input:focus-visible{outline:none}
+.library-search input::placeholder{color:#88768f;font-size:14px}
+.library-search input::-webkit-search-cancel-button{display:none}
+.library-search .icon-button{min-width:44px;min-height:44px}
+.library-search-status{font-size:13px;line-height:1.7;color:#88768f;margin:-10px 0 20px}
+.library-search-status:empty{display:none}
 .published-card{display:flex;flex-direction:column;text-decoration:none;min-width:0;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fffdf9;transition:transform .15s,box-shadow .15s}
 .published-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px #503a6810}
 .published-cover{position:relative;display:grid;place-items:center;aspect-ratio:16/10;width:100%}
@@ -193,3 +205,36 @@
 a.small-button{text-decoration:none;display:inline-flex;align-items:center}
 @media(max-width:760px){.published-grid{grid-template-columns:minmax(0,1fr);gap:20px}.published-card h3{font-size:18px}.published-card .card-details{padding:18px}.published-meta{font-size:13px}}
 @media(max-width:400px){.account-page{padding:24px 14px}.auth-card{padding:22px 18px}.auth-card h1{font-size:25px}}
+
+.leaderboard{padding:24px;margin:0 0 32px;border:1px solid var(--line);border-radius:18px;background:#f5f0fa}
+.leaderboard-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.leaderboard-heading h3,.recent-games-heading{font-size:20px;letter-spacing:-.4px;margin:0}
+.leaderboard-heading>span{font-size:12px;color:#88768f;white-space:nowrap}
+.leaderboard-note{font-size:12px;line-height:1.7;color:#88768f;margin:10px 0 18px}
+.leaderboard-list{list-style:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0;padding:0}
+.leaderboard-list li{min-width:0}
+.leaderboard-list a{display:grid;grid-template-columns:24px 44px minmax(0,1fr) auto;align-items:center;gap:12px;min-height:84px;height:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fffdf9;color:inherit;text-decoration:none}
+.leaderboard-list a:hover{border-color:#b8a0d0;background:#fff}
+.leaderboard-list a:focus-visible{outline:2px solid var(--purple);outline-offset:3px}
+.leaderboard-rank{font-size:20px;font-weight:750;text-align:center;color:var(--purple);font-variant-numeric:tabular-nums}
+.leaderboard-list img{width:44px;height:44px;border-radius:11px}
+.leaderboard-info{display:flex;flex-direction:column;gap:5px;min-width:0;overflow-wrap:anywhere}
+.leaderboard-info strong{font-size:13px;line-height:1.4}
+.leaderboard-info>span{font-size:11px;line-height:1.5;color:#88768f}
+.leaderboard-count{font-size:12px;font-weight:650;color:var(--purple);white-space:nowrap;font-variant-numeric:tabular-nums}
+.leaderboard-empty{font-size:14px;line-height:1.7;color:#88768f;margin:0}
+.recent-games-heading{margin:0 0 20px}
+.published-count{display:flex;align-items:center;gap:5px;color:var(--purple);font-variant-numeric:tabular-nums}
+@media(max-width:760px){
+  .leaderboard{padding:16px;margin-bottom:28px}
+  .leaderboard-heading h3,.recent-games-heading{font-size:18px}
+  .leaderboard-heading>span{font-size:11px}
+  .leaderboard-list{grid-template-columns:minmax(0,1fr)}
+  .leaderboard-list a{grid-template-columns:20px 36px minmax(0,1fr);column-gap:9px;row-gap:4px;padding:10px;min-height:76px}
+  .leaderboard-list img{width:36px;height:36px;border-radius:9px;grid-row:1 / span 2}
+  .leaderboard-rank{font-size:18px;grid-row:1 / span 2}
+  .leaderboard-info{grid-column:3;grid-row:1}
+  .leaderboard-info strong{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .leaderboard-info>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .leaderboard-count{font-size:11px;grid-column:3;grid-row:2}
+}

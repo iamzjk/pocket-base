@@ -1,6 +1,6 @@
-import { startGame } from "/sandbox.js?v=5";
+import { startGame } from "/sandbox.js?v=6";
 
-const PLAYER_VERSION = "5";
+const PLAYER_VERSION = "6";
 const gameId = document.body.dataset.gameId;
 const base = "/play/" + gameId + "/";
 const stage = document.getElementById("stage");
@@ -8,6 +8,23 @@ const status = document.getElementById("offline-state");
 const help = document.getElementById("install-help");
 let currentGame, registration, installPrompt, detach, pendingRevision, previousFocus, checking = false;
 let playingOffline = false, downloaded = false, updateRetryUsed = false;
+let openedOnline = false, openReported = false;
+function recordOpen() {
+  if (openReported || !openedOnline || !navigator.onLine) return;
+  openReported = true;
+  try {
+    const key = "pocket-base:" + gameId + ":play-visitor";
+    let visitorId = localStorage.getItem(key);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(visitorId || "")) {
+      visitorId = crypto.randomUUID();
+      localStorage.setItem(key, visitorId);
+    }
+    void fetch("/api/play/" + gameId + "/open", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ visitorId }),
+      credentials: "omit", cache: "no-store", keepalive: true,
+    }).catch(() => {});
+  } catch { /* Browser storage and popularity reporting must never interrupt play. */ }
+}
 function showStatus(text, ready = false) { status.textContent = text; status.classList.toggle("ready", ready); }
 function render(game) {
   if (detach) detach();
@@ -23,6 +40,7 @@ function render(game) {
   notice.append(message, retry);
   stage.replaceChildren(frame, notice);
   detach = startGame(frame, game.id, game.html, state => {
+    if (state === "ready") recordOpen();
     notice.hidden = state === "ready";
     notice.setAttribute("role", state === "loading" ? "status" : "alert");
     retry.hidden = state === "loading";
@@ -52,7 +70,7 @@ async function prepareOffline() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(base);
     registration = existing?.active && existing.scope === new URL(base, location.href).href
-      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=5", { scope: base });
+      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=6", { scope: base });
     if (navigator.onLine) await registration.update().catch(() => {});
     if (registration.installing || registration.waiting || !registration.active) {
       await new Promise((resolve, reject) => {
@@ -148,6 +166,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) chec
     const response = await fetch(base + "game.json", { cache: "no-store" });
     if (!response.ok) throw new Error(response.status === 404 ? "This game isn't published right now." : "Open this game online once to download it.");
     playingOffline = response.headers.get("X-Pocket-Offline") === "1";
+    openedOnline = !playingOffline && navigator.onLine;
     render(await response.json());
     await prepareOffline();
     // Online can arrive while registration is still being initialized.

@@ -5,7 +5,7 @@ import { version } from "../../package.json";
 export default async function StudioPage({ view }: { view: "studio" | "library" }) {
   const ctx = await context();
   let projects: Project[] = [];
-  let library: GameLibrary = { games: [], hasMore: false };
+  let library: GameLibrary = { games: [], hasMore: false, leaderboard: [] };
   let error = "";
   let libraryError = "";
   let displayName = "";

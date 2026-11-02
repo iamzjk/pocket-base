@@ -51,6 +51,8 @@ No Supabase service-role key is required by the app. PostgreSQL row-level securi
 
 Migration checks target the hosted project in `NEXT_PUBLIC_SUPABASE_URL`. An up-to-date database needs no admin token. Pending migrations without `SUPABASE_ACCESS_TOKEN` stop startup with setup instructions instead of consulting saved credentials. Failed migrations also stop startup. Disposable playground mode skips cloud setup.
 
+When a migration is added while the development server is already running, run `npm run db:migrate`; hot reload does not rerun startup migrations. Library responses from before the play-counter migration remain readable during the transition, with an empty leaderboard and zero counts for missing fields.
+
 ### Models and usage
 
 `OPENROUTER_MODEL` supports these explicit choices:
@@ -86,7 +88,11 @@ Vercel Hobby is for personal, noncommercial projects and has resource limits. Su
 
 Anyone can browse the **Game library** view at `/library` and play published games without signing in. Sign-in is required to create, edit, or publish. Publishing makes a game discoverable across all users; unpublishing removes it from new library requests. The list reads the published revision, so subsequent private draft edits do not change the public title, description, or artwork until republished.
 
-The header links to **My studio** and **Game library** as separate views. The library loads 24 games at a time, with **Show more games** to continue through all published games and **Refresh** to fetch the current list. `/api/library?offset=0` provides the same public metadata. The five Pocket Base originals are public catalog games, not projects seeded into user studios. New studios receive no default projects; existing user creations are retained. Cards show the creator and the latest publication date. Private edits and account-name changes do not change that date; publishing a different revision does. Historical publication dates are backfilled from the published revision’s saved date. The home-page footer displays the version from `package.json`.
+The header links to **My studio** and **Game library** as separate views. The library loads 24 games at a time, with **Show more games** to continue through all published games and **Refresh** to fetch the current list. **Search games** matches any part of titles, descriptions, and public creator names across the entire published catalog, ignoring case (`dod` matches `Dodge`). Search uses literal text (up to 200 characters), filters before pagination, and shows matching cards in place of the usual library sections. Clear the field or press Escape to return to browsing. `/api/library?offset=0&q=maze` provides the same public metadata and search; omit `q` for the full library. The five Pocket Base originals are public catalog games, not projects seeded into user studios. New studios receive no default projects; existing user creations are retained. Cards show the creator and the latest publication date. Private edits and account-name changes do not change that date; publishing a different revision does. Historical publication dates are backfilled from the published revision’s saved date. The home-page footer displays the version from `package.json`.
+
+**Most played** shows the all-time top 10 above the recently updated games. Library cards also show play counts. A play means a successful online public game open, counted at most once per browser per game every rolling 30 minutes. It measures opens, not rounds completed or unique people. Studio previews, restarts, offline launches, downloads, and update checks add no plays. Counts start at zero with release 1.2.0 and carry across revisions and unpublish/republish cycles; unpublished games leave the leaderboard. Ties use publication date, then game ID. **Refresh** updates rankings and listings together; `/api/library` includes `playCount` per game and a `leaderboard` array independent of pagination.
+
+Counting uses an anonymous random per-game browser ID in local storage and private database deduplication records, cleaned after 30 minutes on subsequent counting requests. No account identity or IP address is stored for counting. Reporting is best effort, never blocks gameplay, and is skipped when browser storage is unavailable. Offline opens are not queued for later reporting. Clearing browser storage or using another browser creates a separate counting identity; the totals are approximate popularity statistics.
 
 ## Publishing and installation
 
@@ -136,6 +142,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.1.0**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
+This release is **1.2.2**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.
