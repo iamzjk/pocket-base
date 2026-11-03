@@ -36,7 +36,7 @@ test("release migrations restore originals, preserve published dates, and expose
     await db.exec("reset role");
     await db.query("update public.revisions set created_at='2026-01-01T00:00:00Z' where id=$1",[legacy.current_revision_id]);
     await db.query("update public.projects set updated_at='2026-10-01T00:00:00Z' where id=$1",[legacy.id]);
-    for (const file of ["005_library_profiles.sql","006_signup_protection.sql","007_classic_games.sql","008_longer_prompts.sql","009_game_play_counts.sql","010_library_search.sql"]) await migration(db,file);
+    for (const file of ["005_library_profiles.sql","006_signup_protection.sql","007_classic_games.sql","008_longer_prompts.sql","009_game_play_counts.sql","010_library_search.sql","012_classic_game_logos.sql"]) await migration(db,file);
     const page = async (offset=0,limit=24) => (await db.query<{ l: GameLibrary }>("select public.published_games($1,$2) l",[offset,limit])).rows[0].l;
     await t.test("legacy names use email local parts and dates use the public revision", async () => {
       const game=(await page()).games.find(g=>g.id===legacy.id)!;
@@ -50,6 +50,7 @@ test("release migrations restore originals, preserve published dates, and expose
       for (const classic of classicGames) {
         const game=(await db.query<{ g: Record<string,unknown> }>("select public.public_game($1) g",[classic.id])).rows[0].g;
         assert.equal(game.html,classic.html); assert.equal(game.revisionId,classic.revisionId);
+        assert.equal(game.iconSvg,classic.iconSvg);
         assert.equal(validateGame(game).title,classic.title);
         assert.equal("creatorName" in game,false);
         assert.equal("ownerId" in game,false);

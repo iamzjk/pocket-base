@@ -7,8 +7,23 @@ import { starters } from "./fixtures/games";
 import { renderIconPng } from "../src/lib/icon-png";
 import { SupabaseStore } from "../src/lib/supabase-store";
 import { createClient } from "@supabase/supabase-js";
+import { classicGames } from "../src/lib/classic-games";
 
 const icon = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#ff3366"/><circle cx="256" cy="256" r="100" fill="#fff"/></svg>';
+test("maintained originals have distinct, safe logos that render at every install size", async () => {
+  assert.equal(new Set(classicGames.map(game => game.iconSvg)).size, classicGames.length);
+  for (const game of classicGames) {
+    const clean = sanitizeIconSvg(game.iconSvg);
+    assert.ok(clean);
+    assert.notEqual(clean, sanitizeIconSvg(fallbackIconSvg(game.title, game.theme)));
+    for (const size of [180, 192, 512]) {
+      const png: Buffer = await sharp(Buffer.from(clean)).resize(size).png().toBuffer();
+      const metadata: { width?: number; height?: number } = await sharp(png).metadata();
+      assert.equal(metadata.width, size); assert.equal(metadata.height, size);
+      assert.equal((await sharp(png).stats()).isOpaque, true);
+    }
+  }
+});
 test("safe SVG icons render as correctly sized PNGs and invalid icons fall back", async () => {
   const clean = sanitizeIconSvg(icon);
   assert.ok(clean);
