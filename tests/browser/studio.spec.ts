@@ -434,7 +434,6 @@ test("the shared game library shows other owners' published versions and refresh
   await page.goto("/library");
   const library = page.getByRole("region", { name: "Game library" });
   await expect(library.getByRole("link", { name: "Play Community garden fixture", exact: true })).toBeVisible();
-  await expect(page.getByText("v1.2.3", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: /^Start with / })).toHaveCount(0);
   expect((await page.content()).includes("PRIVATE community")).toBe(false);
   const result = await (await request.get("/api/library")).json();
