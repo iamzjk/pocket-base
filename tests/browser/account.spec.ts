@@ -1,44 +1,29 @@
 import { test, expect, type Page } from "@playwright/test";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
-import { readFile, mkdir } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { AuthForm } from "../../src/components/auth-form";
-import { PocketMark } from "../../src/components/artwork";
 
 const base="http://127.0.0.1:3218";
-async function captcha(page: Page) {
+async function localAuth(page: Page) {
   await page.route("**/auth/v1/**",route=>{
     if(new URL(route.request().url()).origin!=="http://127.0.0.1:3219") {
       void route.abort(); throw new Error("Auth browser checks must only contact the local test service.");
     }
+    const body=route.request().postDataJSON();
+    expect(body?.gotrue_meta_security?.captcha_token).toBeUndefined();
     return route.continue();
   });
-  await page.route("https://js.hcaptcha.com/**",route=>route.fulfill({contentType:"application/javascript",body:`
-    const widgets = new Map(); let sequence = 0;
-    window.hcaptcha = {
-      render(container, options) {
-        const id = String(++sequence); const button = document.createElement("button");
-        button.type = "button"; button.textContent = "Complete security check";
-        button.onclick = () => { options.callback("fictional-captcha"); button.disabled = true; };
-        container.appendChild(button); widgets.set(id, {container, options});
-        window.expireFixtureCaptcha = () => { options["expired-callback"](); button.disabled = false; };
-        return id;
-      },
-      remove(id) { const widget = widgets.get(id); if (widget) widget.container.replaceChildren(); widgets.delete(id); }
-    };
-    window.pocketCaptchaReady();
-  `}));
+  await page.route("**/*hcaptcha*",route=>{
+    void route.abort();throw new Error("Account forms must not load CAPTCHA services.");
+  });
 }
 
-test("public signup requires a name and CAPTCHA, persists a cookie session, and edits public names",async({page})=>{
-  await captcha(page);await page.goto(base+"/account");
+test("public signup requires a name, persists a cookie session, and edits public names without CAPTCHA",async({page})=>{
+  await localAuth(page);await page.goto(base+"/library");
+  await page.getByRole("link",{name:"Sign in / Sign up",exact:true}).click();
   await page.getByRole("button",{name:"Create account",exact:true}).click();
   await page.getByLabel("Email",{exact:true}).fill("new-creator@example.test");
   await page.getByLabel("Password",{exact:true}).fill("fictional-password");
-  await expect(page.getByRole("button",{name:"Create my account"})).toBeDisabled();
-  await page.getByRole("button",{name:"Complete security check"}).click();
   await page.getByRole("button",{name:"Create my account"}).click();
   await expect(page).toHaveURL(base+"/account");
   expect(await page.getByLabel("Public name",{exact:true}).evaluate((input:HTMLInputElement)=>input.validity.valueMissing)).toBe(true);
@@ -46,7 +31,6 @@ test("public signup requires a name and CAPTCHA, persists a cookie session, and 
   await page.getByRole("button",{name:"Create my account"}).click();
   await expect(page.locator(".auth-card").getByRole("alert")).toContainText("public name");
   await page.getByLabel("Public name",{exact:true}).fill("Fictional creator");
-  await page.getByRole("button",{name:"Complete security check"}).click();
   await page.getByRole("button",{name:"Create my account"}).click();
   await expect(page).toHaveURL(base+"/");
   await expect(page.getByRole("button",{name:"Account settings"})).toBeVisible();
@@ -58,32 +42,33 @@ test("public signup requires a name and CAPTCHA, persists a cookie session, and 
   await page.getByRole("button",{name:"Save public name"}).click();
   await expect(page.getByRole("status")).toContainText("Public name saved");
   await page.getByRole("button",{name:"Sign out",exact:true}).click();
-  await expect(page.getByRole("link",{name:"Sign in",exact:true})).toBeVisible();
+  await expect(page.getByRole("link",{name:"Sign in / Sign up",exact:true})).toBeVisible();
 });
 
-test("sign-in handles expired CAPTCHA and duplicate registration without losing form data",async({page})=>{
-  await captcha(page);await page.goto(base+"/account");
+test("registration rate limits and duplicate emails preserve form data and allow sign-in",async({page})=>{
+  await localAuth(page);await page.goto(base+"/account");
   await page.getByLabel("Email",{exact:true}).fill("existing@example.test");
   await page.getByLabel("Password",{exact:true}).fill("fictional-password");
-  await page.getByRole("button",{name:"Complete security check"}).click();
-  await page.evaluate("window.expireFixtureCaptcha()");
-  await expect(page.getByRole("button",{name:"Open my studio"})).toBeDisabled();
   await page.getByRole("button",{name:"Create account",exact:true}).click();
   await page.getByLabel("Public name",{exact:true}).fill("Existing creator");
   await page.getByLabel("Password",{exact:true}).fill("fictional-password");
-  await page.getByRole("button",{name:"Complete security check"}).click();
+  await page.route("**/auth/v1/signup",route=>route.fulfill({status:429,contentType:"application/json",body:JSON.stringify({code:"over_request_rate_limit",msg:"Fictional registration limit"})}));
+  await page.getByRole("button",{name:"Create my account"}).click();
+  await expect(page.locator(".auth-card").getByRole("alert")).toContainText("Too many attempts");
+  await expect(page.getByLabel("Public name",{exact:true})).toHaveValue("Existing creator");
+  await expect(page.getByLabel("Email",{exact:true})).toHaveValue("existing@example.test");
+  await page.unroute("**/auth/v1/signup");
   await page.getByRole("button",{name:"Create my account"}).click();
   await expect(page.locator(".auth-card").getByRole("alert")).toContainText("already uses");
   await expect(page.getByLabel("Email",{exact:true})).toHaveValue("existing@example.test");
   await page.getByRole("button",{name:"Sign in",exact:true}).click();
   await page.getByLabel("Password",{exact:true}).fill("fictional-password");
-  await page.getByRole("button",{name:"Complete security check"}).click();
   await page.getByRole("button",{name:"Open my studio"}).click();
   await expect(page).toHaveURL(base+"/");
 });
 
 test("account forms fit narrow phones and rejected token handoffs never sign in",async({page,request})=>{
-  await captcha(page);await page.setViewportSize({width:320,height:568});await page.goto(base+"/account");
+  await localAuth(page);await page.setViewportSize({width:320,height:568});await page.goto(base+"/account");
   await page.getByRole("button",{name:"Create account",exact:true}).click();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const denied=await request.post(base+"/api/auth",{headers:{Origin:base},data:{action:"session",accessToken:"forged",refreshToken:"forged"}});
@@ -94,10 +79,9 @@ test("account forms fit narrow phones and rejected token handoffs never sign in"
 });
 
 test("signed-in Supabase sessions load private studio logos through the image endpoint", async ({ page, request }) => {
-  await captcha(page); await page.goto(base + "/account");
+  await localAuth(page); await page.goto(base + "/account");
   await page.getByLabel("Email", { exact: true }).fill("existing@example.test");
   await page.getByLabel("Password", { exact: true }).fill("fictional-password");
-  await page.getByRole("button", { name: "Complete security check" }).click();
   await page.getByRole("button", { name: "Open my studio" }).click();
   await expect(page).toHaveURL(base + "/");
   const image = page.getByRole("button", { name: "Open Fictional account logo game", exact: true }).locator("img");
@@ -112,25 +96,26 @@ test("signed-in Supabase sessions load private studio logos through the image en
   expect((await page.request.get(base + "/api/projects/60000000-0000-4000-8000-000000000099/icon")).status()).toBe(404);
 });
 
-test("sign-in-only layout has no redundant selector and fits phones and desktop", async ({ page }) => {
-  // Render the real component with pending CAPTCHA configuration for a layout-only fixture.
-  const stylesheet = await readFile(path.join(process.cwd(), "src/app/globals.css"), "utf8");
-  const markup = renderToStaticMarkup(createElement("main", { className: "account-page" },
-    createElement("a", { className: "brand", href: "/", "aria-label": "Pocket Base home" },
-      createElement(PocketMark), createElement("span", null, "pocket", createElement("span", { className: "brand-light" }, "base"))),
-    createElement(AuthForm, { config: { url: "http://127.0.0.1:3219", key: "fictional-key" } })));
-  await page.setContent('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>'
-    + stylesheet + '</style></head><body>' + markup + '</body></html>');
-  await expect(page.getByRole("group", { name: "Account access" })).toHaveCount(0);
-  await expect(page.getByRole("heading", { name: "Welcome to your studio" })).toBeVisible();
-  await page.getByLabel("Email", { exact: true }).fill("fictional-creator@example.test");
-  await page.getByLabel("Password", { exact: true }).fill("fictional-password");
+test("public account links and both account forms fit phones and desktop", async ({ page }) => {
+  await localAuth(page);
   const evidence = process.env.AGENT_DESK_EVIDENCE_DIR || path.join(os.tmpdir(), "pocket-base-evidence");
   await mkdir(evidence, { recursive: true });
   for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 1440, height: 1000 }]) {
     await page.setViewportSize(viewport);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await expect(page.getByRole("button", { name: "Open my studio" })).toBeVisible();
-    await page.screenshot({ path: path.join(evidence, "account-signin-" + viewport.width + ".png"), fullPage: true });
+    for (const route of ["/", "/library"]) {
+      await page.goto(base + route);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.getByRole("link", { name: "Sign in / Sign up", exact: true }).click();
+      await expect(page.getByRole("group", { name: "Account access" })).toBeVisible();
+    }
+    await page.getByLabel("Email", { exact: true }).fill("fictional-creator@example.test");
+    await page.getByLabel("Password", { exact: true }).fill("fictional-password");
+    for (const signup of [false, true]) {
+      await page.getByRole("button", { name: signup ? "Create account" : "Sign in", exact: true }).click();
+      if (signup) await page.getByLabel("Public name", { exact: true }).fill("Fictional creator");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await expect(page.getByRole("button", { name: signup ? "Create my account" : "Open my studio" })).toBeVisible();
+      await page.screenshot({ path: path.join(evidence, "account-" + (signup ? "signup-" : "signin-") + viewport.width + ".png"), fullPage: true });
+    }
   }
 });

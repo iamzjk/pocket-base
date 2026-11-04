@@ -4,7 +4,7 @@ Pocket Base is a standalone Next.js App Router application using React, TypeScri
 
 ## Product and access boundaries
 
-- `/` is My studio. Creating, editing, restoring, and publishing require a signed-in account. Each account owns separate projects and revisions; public signup requires hCaptcha and a public name. There is no shared editing UI.
+- `/` is My studio. Creating, editing, restoring, and publishing require a signed-in account. Each account owns separate projects and revisions; public signup requires a public name and server-side registration limits. There is no shared editing UI.
 - `/library` and `/api/library` are public. Anyone can browse all users' published games and open `/play/<id>/` without signing in. Publishing opts a game into discovery; unpublishing removes it from fresh listings and online play. Previously downloaded games may remain playable offline.
 - Public listings must read the selected **published revision**, not the project's current draft fields. Expose only the listing metadata. Never expose private drafts, prompts, owner IDs, full emails, or private account details through the library. Only the explicit public creator name and publication timestamp are included.
 - New studios start empty. The five maintained originals are public read-only catalog games in `src/content/classic-games.json` and numbered SQL seeds. Test fixtures use separate IDs and must never be imported by application code.
@@ -19,10 +19,10 @@ Pocket Base is a standalone Next.js App Router application using React, TypeScri
 
 ## Accounts and public credits
 
-- `/account` handles signup/sign-in directly through Supabase so rate limits use the visitor’s IP. Once configured, hCaptcha is verified by Supabase on both forms. Before activation, existing sign-in stays available and registration stays hidden; registration must always require CAPTCHA. `/api/auth` validates issued session tokens before persisting SSR cookies; it never trusts a user object from the browser.
+- `/account` handles signup/sign-in directly through Supabase so rate limits use the visitor’s IP. Both forms are public when Supabase is configured and do not use CAPTCHA. The public header links to sign-in and signup. `/api/auth` validates issued session tokens before persisting SSR cookies; it never trusts a user object from the browser.
 - Public names are 1–80 plain-text characters, required at signup. Existing names are backfilled from email local parts. Profile mutations are owner-checked. No runtime service-role key is needed.
-- The PostgreSQL Before User Created hook enforces 3 registrations/IP/hour, 10/IP/rolling day, and 100 total/rolling day. Group IPv6 by /64. Private atomic counters expire after 24 hours. Missing CAPTCHA or hook failures never bypass protection.
-- `npm run auth:configure` is an explicit post-deployment setup command, never a build/startup side effect. It requires private hCaptcha credentials and an admin token. Deploy compatible forms before enabling CAPTCHA; `npm run auth:check` prints only safe readiness flags.
+- The PostgreSQL Before User Created hook enforces 3 registrations/IP/rolling hour, 10/IP/rolling day, and 100 total/rolling day. Group IPv6 by /64. Private atomic counters expire after 24 hours. Hook failures never bypass protection. Supabase's built-in Auth rate limits apply independently.
+- `npm run auth:configure` is an explicit post-deployment setup command, never a build/startup side effect. It requires the existing admin token, enables public email signup and the registration hook together, and disables CAPTCHA. Preserve stronger existing password requirements and built-in Auth rate limits. `npm run auth:check` prints only safe readiness flags.
 - Library `updatedAt` is the publication timestamp. Draft writes, restores, profile updates, and repeated publication of the same live revision must not move it. Original catalog games have fixed revision dates.
 
 ## Generation and game safety

@@ -206,8 +206,6 @@
 .login-form small{display:block;font-size:12px;line-height:1.6;font-weight:400;color:#88768f;margin-top:7px}
 .auth-card .primary-button{min-height:44px;font-size:14px}
 .auth-card .play-link{justify-content:center;font-size:13px;margin:20px 0 0}
-.captcha-check{margin:18px 0;min-height:144px}
-.captcha-check p{font-size:13px;line-height:1.6;color:#a45f53}
 .profile-saved{color:#5b805e;font-size:13px}
 .account-signout{margin-top:22px}
 a.small-button{text-decoration:none;display:inline-flex;align-items:center}

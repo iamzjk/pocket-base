@@ -215,7 +215,7 @@ export function Studio(props: Props) {
         {props.demo && <span className="demo-badge">Local playground</span>}
         <nav className="studio-navigation" aria-label="Main navigation"><a className={"studio-nav " + (props.view === "studio" ? "is-active" : "")} href="/" aria-current={props.view === "studio" ? "page" : undefined}><span className="nav-dot"/>My studio</a><a className={"studio-nav " + (props.view === "library" ? "is-active" : "")} href="/library" aria-current={props.view === "library" ? "page" : undefined}><Globe size={15}/>Game library</a></nav>
         {signedIn ? <button className="avatar" aria-label="Account settings" onClick={() => { setError(""); setProfileSaved(false); setModal("account"); }} disabled={!!busy}>{displayName.slice(0,1).toUpperCase() || "P"}</button>
-          : <a className="small-button" href="/account">Sign in</a>}
+          : <a className="small-button" href="/account">Sign in / Sign up</a>}
       </div>
     </header>
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setError("")}><X size={17}/></button></div>}

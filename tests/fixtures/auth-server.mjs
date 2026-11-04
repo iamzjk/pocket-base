@@ -44,7 +44,6 @@ const server=createServer(async(req,res)=>{
     if(url.searchParams.get("grant_type")==="refresh_token") {
       const account=sessions.get(input.refresh_token);return account ? send(200,issue(account)) : send(401,{});
     }
-    if(input.gotrue_meta_security?.captcha_token!=="fictional-captcha")return send(400,{code:"captcha_failed",msg:"Test CAPTCHA rejected"});
     if(url.pathname.endsWith("signup")) {
       if(accounts.has(input.email))return send(400,{code:"user_already_exists",msg:"Existing test account"});
       if(!input.data?.display_name?.trim())return send(400,{code:"validation_failed",msg:"Name required"});
@@ -78,7 +77,7 @@ const server=createServer(async(req,res)=>{
 server.listen(3219,"127.0.0.1",()=>{
   const child=spawn(process.execPath,["node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port","3218"],{
     stdio:"inherit",env:{...process.env,POCKET_BASE_DEMO:"false",NEXT_PUBLIC_SUPABASE_URL:"http://127.0.0.1:3219",
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:"fictional-publishable-key",NEXT_PUBLIC_HCAPTCHA_SITEKEY:"fictional-sitekey",OPENROUTER_API_KEY:"",SUPABASE_ACCESS_TOKEN:"",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:"fictional-publishable-key",OPENROUTER_API_KEY:"",SUPABASE_ACCESS_TOKEN:"",
       NODE_OPTIONS:"--import="+path.join(process.cwd(),"tests/fixtures/local-network-only.mjs")},
   });
   const stop=()=>{child.kill("SIGTERM");server.close();};

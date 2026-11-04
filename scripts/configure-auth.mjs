@@ -23,9 +23,6 @@ export async function configureAuth(options = {}) {
   };
   let config=await read();
   if(apply) {
-    if (!env.NEXT_PUBLIC_HCAPTCHA_SITEKEY || !env.HCAPTCHA_SECRET_KEY) throw new Error("Set NEXT_PUBLIC_HCAPTCHA_SITEKEY and HCAPTCHA_SECRET_KEY before enabling public signup.");
-    if(env.NEXT_PUBLIC_HCAPTCHA_SITEKEY === "10000000-ffff-ffff-ffff-000000000001" || env.HCAPTCHA_SECRET_KEY === "0x0000000000000000000000000000000000000000")
-      throw new Error("Official hCaptcha test keys cannot protect production signup.");
     const ready=await fetcher(env.NEXT_PUBLIC_SUPABASE_URL.replace(/\/$/,"")+"/rest/v1/rpc/studio_migration_versions",{
       method:"POST",headers:{apikey:env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,"Content-Type":"application/json"},body:"{}",signal:AbortSignal.timeout(20_000),
     });
@@ -36,15 +33,15 @@ export async function configureAuth(options = {}) {
     const response=await fetcher(url,{method:"PATCH",headers,signal:AbortSignal.timeout(20_000),body:JSON.stringify({
       disable_signup:false,external_email_enabled:true,external_anonymous_users_enabled:false,mailer_autoconfirm:true,
       password_min_length:Math.max(8,Number(config.password_min_length)||0),
-      security_captcha_enabled:true,security_captcha_provider:"hcaptcha",security_captcha_secret:env.HCAPTCHA_SECRET_KEY,
+      security_captcha_enabled:false,
       hook_before_user_created_enabled:true,hook_before_user_created_uri:hook,
     })});
     if(!response.ok)throw new Error(`Couldn't update Supabase authentication settings (HTTP ${response.status}).`);
     config=await read();
   }
   // Return only explicitly public status, never the Management API's raw response.
-  const status={signupEnabled:config.disable_signup===false,immediateSignIn:config.mailer_autoconfirm===true,
-    hcaptchaEnabled:config.security_captcha_enabled===true && config.security_captcha_provider==="hcaptcha",
+  const status={signupEnabled:config.disable_signup===false && config.external_email_enabled===true,immediateSignIn:config.mailer_autoconfirm===true,
+    captchaDisabled:config.security_captcha_enabled===false,
     signupHookEnabled:config.hook_before_user_created_enabled===true && config.hook_before_user_created_uri===hook};
   if(apply && !Object.values(status).every(Boolean))throw new Error("Authentication settings were updated but verification failed. Check the settings before accepting registrations.");
   return status;

@@ -7,24 +7,23 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AuthForm } from "../src/components/auth-form";
 
-test("auth requires CAPTCHA, sends required public names, and returns only issued session tokens",async()=>{
+test("auth validates public names and passwords and returns only issued session tokens",async()=>{
   const calls:{operation:string;input:unknown}[]=[];
   const success={data:{session:{access_token:"issued-access",refresh_token:"issued-refresh"}},error:null};
   const client={auth:{signUp:async(input:unknown)=>{calls.push({operation:"signup",input});return success;},signInWithPassword:async(input:unknown)=>{calls.push({operation:"login",input});return success;}}} as unknown as SupabaseClient;
-  const input={signup:true,email:" creator@example.test ",password:"fictional-password",displayName:" Creator ",captchaToken:"solved"};
-  await assert.rejects(authenticate(client,{...input,captchaToken:""}),/security check/);
+  const input={signup:true,email:" creator@example.test ",password:"fictional-password",displayName:" Creator "};
+  await assert.rejects(authenticate(client,{...input,password:"short"}),/at least 8/);
   await assert.rejects(authenticate(client,{...input,displayName:"<bad>"}),/public name/);
   assert.equal(calls.length,0);
   assert.deepEqual(await authenticate(client,input),{accessToken:"issued-access",refreshToken:"issued-refresh"});
-  assert.deepEqual(calls[0],{operation:"signup",input:{email:"creator@example.test",password:input.password,options:{data:{display_name:"Creator"},captchaToken:"solved"}}});
+  assert.deepEqual(calls[0],{operation:"signup",input:{email:"creator@example.test",password:input.password,options:{data:{display_name:"Creator"}}}});
   await authenticate(client,{...input,signup:false});
-  assert.deepEqual(calls[1],{operation:"login",input:{email:"creator@example.test",password:input.password,options:{captchaToken:"solved"}}});
+  assert.deepEqual(calls[1],{operation:"login",input:{email:"creator@example.test",password:input.password}});
   assert.equal(publicName("🎮 Creator"),"🎮 Creator");
 });
 test("auth errors do not disclose provider payloads or report success without a session",async()=>{
-  const input={signup:true,email:"creator@example.test",password:"fictional-password",displayName:"Creator",captchaToken:"solved"};
+  const input={signup:true,email:"creator@example.test",password:"fictional-password",displayName:"Creator"};
   for(const [error,pattern] of [
-    [{code:"captcha_failed",status:400},/security check/],
     [{code:"email_exists",status:400},/already uses/],
     [{code:"over_request_rate_limit",status:429},/Too many/],
     [{code:"weak_password",status:400},/stronger password/],
@@ -37,19 +36,14 @@ test("auth errors do not disclose provider payloads or report success without a 
   await assert.rejects(authenticate(client,input),/couldn't sign in yet/);
 });
 
-test("pending CAPTCHA setup preserves existing sign-in while registration stays protected",async()=>{
+test("configured account forms expose signup without requiring CAPTCHA settings",()=>{
   const markup=renderToStaticMarkup(createElement(AuthForm,{config:{url:"https://fictional.example",key:"fictional-key"}}));
-  assert.ok(markup.includes("Open my studio"));assert.equal(markup.includes("Create account"),false);
-  assert.equal(markup.includes('class="auth-tabs"'),false);
+  assert.ok(markup.includes("Open my studio"));assert.ok(markup.includes("Create account"));
+  assert.ok(markup.includes('class="auth-tabs"'));
   assert.equal(markup.includes('class="primary-button" disabled'),false);
-  const calls:unknown[]=[];
-  const client={auth:{signInWithPassword:async(input:unknown)=>{calls.push(input);return {data:{session:{access_token:"access",refresh_token:"refresh"}},error:null};}}} as unknown as SupabaseClient;
-  const input={signup:false,email:"existing@example.test",password:"fictional-password",displayName:"",captchaToken:"",captchaRequired:false};
-  await authenticate(client,input);
-  assert.deepEqual(calls,[{email:input.email,password:input.password}]);
-  await assert.rejects(authenticate(client,{...input,signup:true,displayName:"Creator"}),/security check/);
-  await assert.rejects(authenticate(client,{...input,captchaRequired:true}),/security check/);
-  assert.equal(calls.length,1);
+  const unconfigured=renderToStaticMarkup(createElement(AuthForm,{config:null}));
+  assert.ok(unconfigured.includes("Account access isn’t available yet"));
+  assert.equal(unconfigured.includes("Create account"),false);
 });
 test("session handoff verifies tokens with Auth before writing session cookies",async()=>{
   const calls:string[]=[];

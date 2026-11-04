@@ -31,21 +31,19 @@ Playground data is stored in ignored `.local/demo.json`. Set `POCKET_BASE_DATA_D
 
 3. Create the **account access token** at https://supabase.com/dashboard/account/tokens. This is separate from the project's publishable key. Keep it server-only; never prefix it with `NEXT_PUBLIC_` or commit it.
 4. Run `npm run dev`. Startup checks the migration history and applies pending SQL files automatically. No SQL editor, database password, CLI login, or Keychain prompt is needed. `npm run db:migrate` applies migrations explicitly, including while playground mode is enabled.
-5. Configure hCaptcha and enable protected public signup using the steps below. `/account` provides sign-in and account creation. A public name, email, and password (at least 8 characters) are required. New accounts sign in immediately, without confirmation emails. Each account owns separate projects and revisions; there is no shared editing UI.
+5. Enable public signup with server-side registration limits using the steps below. `/account` provides sign-in and account creation without CAPTCHA. A public name, email, and password (at least 8 characters) are required. New accounts sign in immediately, without confirmation emails. Each account owns separate projects and revisions; there is no shared editing UI.
 
 Existing accounts keep their games and use the part of their email before `@` as their initial public name. **Account settings** lets creators change it. Only the chosen public name is exposed in library credits; full email addresses and owner IDs remain private.
 
 ### Protected signup setup
 
-1. Create an [hCaptcha sitekey and secret](https://dashboard.hcaptcha.com/). Enable its domain allowlist for your production hostname. For local testing with real hCaptcha, use a supported development hostname; routine browser tests use a local CAPTCHA double.
-2. Set `NEXT_PUBLIC_HCAPTCHA_SITEKEY` in `.env.local` and Vercel. Keep `HCAPTCHA_SECRET_KEY` only in the private environment used by the setup command; the app runtime does not need it. Never use official hCaptcha test keys in production.
-3. Apply the numbered migrations with `npm run db:migrate`, then deploy the new account page **before** enabling CAPTCHA. Until a sitekey is configured, existing users can sign in and the registration tab stays hidden. Once enabled, Supabase independently enforces CAPTCHA even for direct authentication requests.
-4. After deployment, run `npm run auth:configure` with the existing `SUPABASE_ACCESS_TOKEN` and hCaptcha settings. This enables hCaptcha, the PostgreSQL signup hook, public email signup, and immediate sign-in together. It preserves stronger existing password requirements and refuses to overwrite another active signup hook. It never runs automatically during builds or startup.
-5. Run `npm run auth:check` to inspect only the four public readiness flags. The script never prints raw auth settings, tokens, or CAPTCHA secrets.
+1. Apply the numbered migrations with `npm run db:migrate`, then deploy the account page. The public header links to **Sign in / Sign up**; the account page offers both sign-in and account creation whenever Supabase is configured.
+2. After deployment, run `npm run auth:configure` with the existing `SUPABASE_ACCESS_TOKEN`. This enables the PostgreSQL signup hook, public email signup, and immediate sign-in together, and disables Supabase CAPTCHA. It preserves stronger existing password requirements and built-in Auth rate limits, and refuses to overwrite another active signup hook. It never runs automatically during builds or startup.
+3. Run `npm run auth:check` to inspect the four public readiness flags: `signupEnabled`, `immediateSignIn`, `captchaDisabled`, and `signupHookEnabled`. All should be true. The script never prints raw auth settings or tokens.
 
-The hook allows **3 registrations per IP per hour, 10 per IP per rolling 24 hours, and 100 total per rolling 24 hours**. IPv6 addresses within one `/64` share a counter. Accepted signup requests reserve a slot, even if account creation subsequently fails. Counters are private and expire after 24 hours; CAPTCHA and the hook apply to direct Supabase requests too. CAPTCHA failures and outages do not bypass protection.
+The hook allows **3 registrations per IP per rolling hour, 10 per IP per rolling 24 hours, and 100 total per rolling 24 hours**. IPv6 addresses within one `/64` share a counter. Accepted signup requests reserve a slot, even if account creation subsequently fails. Counters are private and expire after 24 hours. The hook also checks direct Supabase signup requests and rejects registrations when it fails. Supabase's built-in Auth endpoint rate limits apply independently.
 
-Signup and sign-in run from the browser so Supabase sees the visitor’s IP. The resulting verified session is handed to the app’s cookie-backed session endpoint. No Supabase service-role key or email service is introduced. CAPTCHA and rate limits reduce automated abuse; they do not establish one account per person.
+Signup and sign-in run from the browser so Supabase sees the visitor’s IP. The resulting verified session is handed to the app’s cookie-backed session endpoint. No Supabase service-role key or email service is introduced. Rate limits reduce automated abuse; they do not establish one account per person or prevent attackers from exhausting the shared allowance.
 
 No Supabase service-role key is required by the app. PostgreSQL row-level security and ownership-checked functions protect private records. Public play access returns only the published game's title, description, theme, source, and revision identity. The public library returns published metadata across all accounts, without source, owner IDs, or full email addresses; it includes only the explicit public creator name and publication date. Drafts and prompts stay private.
 
@@ -142,6 +140,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.2.4**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
+This release is **1.2.5**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.
