@@ -1,8 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+
+test("checked-in migrations pass deployment readiness without administration access", async () => {
+  const { runMigrations } = await import("../scripts/migrate.mjs");
+  const files = await readdir(new URL("../supabase/migrations/", import.meta.url));
+  const versions = files.filter(file => file.endsWith(".sql")).map(file => file.split("_")[0]).sort();
+  const result = await runMigrations({
+    mode: "build",
+    env: {
+      NEXT_PUBLIC_SUPABASE_URL: "https://abcdefghijklmnopqrst.supabase.co",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "fictional-publishable-key",
+    },
+    fetcher: async () => Response.json(versions),
+    execute: async () => { throw new Error("An up-to-date database must not be mutated."); },
+    log: () => {},
+  });
+  assert.equal(result.verified, true);
+  assert.deepEqual(result.versions, versions);
+});
 
 test("automatic migrations require explicit admin credentials and never mutate previews", async t => {
   const { runMigrations } = await import("../scripts/migrate.mjs");

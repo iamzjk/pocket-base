@@ -39,7 +39,7 @@ export async function configureAuth(options = {}) {
       method:"POST",headers:{apikey:env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,"Content-Type":"application/json"},body:"{}",signal:AbortSignal.timeout(20_000),
     });
     const versions=ready.ok ? await ready.json() : [];
-    if(!Array.isArray(versions) || !["005","006","007","008",...(options.google ? ["013"] : [])].every(v=>versions.includes(v)))throw new Error("Apply Pocket Base release migrations before enabling signup.");
+    if(!Array.isArray(versions) || !["005","006","007","008",...(options.google ? ["013","014"] : [])].every(v=>versions.includes(v)))throw new Error("Apply Pocket Base release migrations before enabling signup.");
     if(config.hook_before_user_created_enabled && config.hook_before_user_created_uri !== hook)
       throw new Error("A different signup hook is active. Preserve it and review the configuration before changing it.");
     const response=await fetcher(url,{method:"PATCH",headers,signal:AbortSignal.timeout(20_000),body:JSON.stringify({

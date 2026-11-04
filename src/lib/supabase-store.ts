@@ -3,11 +3,8 @@ import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, typ
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
 import { libraryQuery, normalizeLibrary } from "./library";
-<<<<<<< Updated upstream
 import type { CreatorProfile } from "./types";
-=======
 import { validateSaveLimits } from "./save-limits";
->>>>>>> Stashed changes
 
 type Row = Record<string, unknown>;
 function project(row: Row): Project {

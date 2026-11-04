@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, mkdtemp, rm } from "node:fs/promises";
+import { readFile, readdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { PGlite } from "@electric-sql/pglite";
@@ -43,10 +43,11 @@ test("hosted planning/build reservations enforce ownership, leases, and both dai
   }
   const finish = (id: string) => db.query("select public.finish_generation($1)", [id]);
   try {
-    await db.exec("create role anon; create role authenticated; create schema auth; create table auth.users(id uuid primary key); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;");
-    for (const owner of owners) await db.query("insert into auth.users(id) values($1)", [owner]);
-    for (const file of ["001_studio.sql", "011_configurable_generation_limits.sql", "013_generation_planning.sql"])
-      await db.exec(await readFile(new URL("../supabase/migrations/" + file, import.meta.url), "utf8"));
+    await db.exec("create role anon; create role authenticated; create role supabase_auth_admin; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}',raw_app_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;");
+    for (const owner of owners) await db.query("insert into auth.users(id,email) values($1,$2)", [owner, owner + "@example.test"]);
+    const migrations = new URL("../supabase/migrations/", import.meta.url);
+    for (const file of (await readdir(migrations)).filter(file => file.endsWith(".sql")).sort())
+      await db.exec(await readFile(new URL(file, migrations), "utf8"));
     await asUser(owners[0]);
     const parent = await reserve();
     await asUser(owners[1]); await assert.rejects(reserve(parent), /PS_EXPIRED/);

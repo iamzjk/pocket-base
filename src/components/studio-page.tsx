@@ -2,11 +2,8 @@ import { context, publicStore } from "@/lib/auth";
 import { Studio } from "@/components/studio";
 import type { Project, GameLibrary, CreatorProfile } from "@/lib/types";
 import { version } from "../../package.json";
-<<<<<<< Updated upstream
 import { redirect } from "next/navigation";
-=======
 import { contentLimits } from "@/lib/config";
->>>>>>> Stashed changes
 export default async function StudioPage({ view }: { view: "studio" | "library" }) {
   const ctx = await context();
   // Complete the profile before reading private projects, including after an interrupted OAuth signup.

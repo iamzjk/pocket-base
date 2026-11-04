@@ -4,15 +4,25 @@ import { readFile, readdir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 
-test("Google onboarding preserves existing creators and guards direct writes until name completion", async () => {
+for (const legacyPlanning of [false, true]) test("Google onboarding preserves existing creators and guards direct writes until name completion (013 " + (legacyPlanning ? "planning" : "Google") + ")", async () => {
   const db = new PGlite();
   try {
     await db.exec("create role anon; create role authenticated; create role supabase_auth_admin; create schema auth; create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb default '{}',raw_app_meta_data jsonb default '{}'); create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$; grant usage on schema auth to anon,authenticated;");
     const existing=randomUUID(), google=randomUUID();
     await db.query("insert into auth.users(id,email) values($1,'original@example.test')",[existing]);
     const migrations=new URL("../supabase/migrations/",import.meta.url);
-    for(const file of (await readdir(migrations)).filter(file=>file.endsWith(".sql")).sort())
-      await db.exec(await readFile(new URL(file,migrations),"utf8"));
+    let existingGame: {id:string;current_revision_id:string} | undefined;
+    for(const file of (await readdir(migrations)).filter(file=>file.endsWith(".sql")).sort()) {
+      if (file.startsWith("014_")) {
+        await asUser(existing);
+        await db.query("select public.save_creator_profile('Original creator')");
+        existingGame = await save();
+        await db.exec("reset role");
+      }
+      const source = legacyPlanning && file.startsWith("013_")
+        ? new URL("./fixtures/legacy-generation-planning.sql", import.meta.url) : new URL(file,migrations);
+      await db.exec(await readFile(source,"utf8"));
+    }
     async function asUser(id:string) {
       await db.exec("reset role");await db.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await db.exec("set role authenticated");
     }
@@ -20,8 +30,9 @@ test("Google onboarding preserves existing creators and guards direct writes unt
       return (await db.query<{g:{id:string;current_revision_id:string}}>("select public.save_game(null,null,'Fictional game','Description','mint',$1,'PRIVATE') g",["<!doctype html><body>"+"fictional ".repeat(20)+"</body>"])).rows[0].g;
     }
     await asUser(existing);
-    assert.deepEqual((await db.query<{p:unknown}>("select public.creator_profile() p")).rows[0].p,{displayName:"original"});
-    const game=await save();
+    assert.deepEqual((await db.query<{p:unknown}>("select public.creator_profile() p")).rows[0].p,{displayName:"Original creator"});
+    const game=existingGame!;
+    assert.equal((await db.query<{g:{id:string}}>("select public.project_detail($1) g",[game.id])).rows[0].g.id,game.id);
     await db.exec("reset role");
     await db.query("insert into auth.users(id,email,raw_app_meta_data,raw_user_meta_data) values($1,'google@example.test','{\"provider\":\"google\",\"providers\":[\"google\"]}','{\"name\":\"Private Google Name\",\"display_name\":\"Do not copy\"}')",[google]);
     await asUser(google);
@@ -32,9 +43,13 @@ test("Google onboarding preserves existing creators and guards direct writes unt
       await assert.rejects(db.query("select public.save_creator_profile($1)",[name]),/PS_BAD_PROFILE/);
     await db.query("select public.save_creator_profile('  Chosen creator  ')");
     await save();
-    await db.query("select public.reserve_generation()");
+    const parent=(await db.query<{id:string}>("select public.reserve_generation() id")).rows[0].id;
+    const child=(await db.query<{id:string}>("select public.reserve_generation_step($1) id",[parent])).rows[0].id;
+    await assert.rejects(db.query("select public.reserve_generation_step($1)",[parent]),/PS_BUSY/);
+    await db.query("select public.finish_generation($1)",[child]);
+    await db.query("select public.finish_generation($1)",[parent]);
     await asUser(existing);
-    assert.deepEqual((await db.query<{p:unknown}>("select public.creator_profile() p")).rows[0].p,{displayName:"original"});
+    assert.deepEqual((await db.query<{p:unknown}>("select public.creator_profile() p")).rows[0].p,{displayName:"Original creator"});
     await db.exec("reset role");
     // Simulate a legacy project belonging to a now-incomplete profile, covering all existing RPCs.
     await db.query("update public.creator_profiles set display_name=null where user_id=$1",[existing]);
@@ -48,6 +63,7 @@ test("Google onboarding preserves existing creators and guards direct writes unt
     await db.query("insert into auth.users(id,email,raw_user_meta_data) values(gen_random_uuid(),'email@example.test','{\"display_name\":\"Email creator\"}')");
     await db.exec("set role anon");
     await assert.rejects(db.query("select public.save_creator_profile('stolen')"),/permission denied/);
+    await assert.rejects(db.query("select public.reserve_generation_step($1)",[parent]),/permission denied/);
   } finally {await db.close();}
 });
 

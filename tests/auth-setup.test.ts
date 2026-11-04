@@ -52,7 +52,7 @@ test("explicit Google setup preserves other providers and allowlist entries and 
   let config:Record<string,unknown>={uri_allow_list:"https://unrelated.example/auth",external_github_enabled:true,password_min_length:14,rate_limit_verify:10};
   let writes=0;
   const fetcher:typeof fetch=async(url,options)=>{
-    if(String(url).includes("studio_migration_versions"))return Response.json(["005","006","007","008","013"]);
+    if(String(url).includes("studio_migration_versions"))return Response.json(["005","006","007","008","013","014"]);
     if(options?.method==="PATCH") {writes++; config={...config,...JSON.parse(String(options.body))};}
     return Response.json(config);
   };
@@ -71,5 +71,6 @@ test("explicit Google setup preserves other providers and allowlist entries and 
   const enabled=await configureAuth({env:{...env,POCKET_BASE_GOOGLE_SIGN_IN:"true"},fetcher});assert.equal(enabled.googleSignInEnabled,true);
   await configureAuth({env:{...env,VERCEL_ENV:"preview"},fetcher});
   assert.equal(writes,2);
-  await assert.rejects(configureAuth({env,apply:true,google:true,fetcher:async url=>Response.json(String(url).includes("studio_migration_versions")?["005","006","007","008"]:{})}),/Apply Pocket Base/);
+  for (const versions of [["005","006","007","008"],["005","006","007","008","013"]])
+    await assert.rejects(configureAuth({env,apply:true,google:true,fetcher:async url=>Response.json(String(url).includes("studio_migration_versions")?versions:{})}),/Apply Pocket Base/);
 });
