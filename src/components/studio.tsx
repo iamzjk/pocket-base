@@ -197,7 +197,7 @@ export function Studio(props: Props) {
     event.preventDefault(); setError(""); setBusy("profile"); setProfileSaved(false);
     try {
       const profile = await api<CreatorProfile>("/api/profile", { displayName });
-      setDisplayName(profile.displayName); setProfileSaved(true);
+      setDisplayName(profile.displayName || ""); setProfileSaved(true);
       if (props.view === "library") void loadLibrary();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }

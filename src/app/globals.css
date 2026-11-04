@@ -206,6 +206,9 @@
 .login-form small{display:block;font-size:12px;line-height:1.6;font-weight:400;color:#88768f;margin-top:7px}
 .auth-card .primary-button{min-height:44px;font-size:14px}
 .auth-card .play-link{justify-content:center;font-size:13px;margin:20px 0 0}
+.google-button{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:46px;border:1px solid #c4c7c5;border-radius:10px;background:#fff;color:#1f1f1f;font-size:14px;font-weight:500;padding:10px 12px}
+.google-button:focus-visible{outline:2px solid var(--purple);outline-offset:3px}
+.auth-divider{text-align:center;color:#88768f;font-size:12px;margin:18px 0}
 .profile-saved{color:#5b805e;font-size:13px}
 .account-signout{margin-top:22px}
 a.small-button{text-decoration:none;display:inline-flex;align-items:center}

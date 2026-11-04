@@ -2,11 +2,13 @@
 // No real credentials, external requests, or application test bypasses.
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 
 const accounts=new Map();
 const sessions=new Map();
+const flows=new Map();
+const codes=new Map();
 const encode=value=>Buffer.from(JSON.stringify(value)).toString("base64url");
 function issue(account) {
   const header=encode({alg:"HS256",typ:"JWT"});
@@ -38,9 +40,42 @@ const server=createServer(async(req,res)=>{
   let input={}; try {if(body.length)input=JSON.parse(Buffer.concat(body).toString());}catch{return send(400,{});}
   const account=sessions.get(req.headers.authorization?.replace(/^Bearer /,""));
   if(url.pathname==="/health")return send(200,{ok:true});
+  // Fictional consent page, still using the real SDK's PKCE challenge and exchange.
+  if(url.pathname==="/auth/v1/authorize") {
+    if(url.searchParams.get("provider")!=="google" || url.searchParams.get("redirect_to")!=="http://127.0.0.1:3218/auth/callback" || url.searchParams.get("code_challenge_method")!=="s256")return send(400,{});
+    const flow=randomUUID();flows.set(flow,{challenge:url.searchParams.get("code_challenge"),callback:url.searchParams.get("redirect_to")});
+    res.setHeader("Content-Type","text/html");
+    return res.end('<!doctype html><html><body><h1>Fictional Google consent</h1>'+["New user","Returning user","Linked email user","Cancel","Expired code"].map(choice=>'<p><a href="/fixture/consent?flow='+flow+'&choice='+encodeURIComponent(choice)+'">'+choice+'</a></p>').join("")+'</body></html>');
+  }
+  if(url.pathname==="/fixture/consent") {
+    const flow=flows.get(url.searchParams.get("flow"));flows.delete(url.searchParams.get("flow"));
+    if(!flow)return send(400,{});
+    const choice=url.searchParams.get("choice");
+    const destination=new URL(flow.callback);
+    if(choice==="Cancel")destination.searchParams.set("error","access_denied");
+    else {
+      let account;
+      if(choice==="Linked email user")account=existing;
+      else if(choice==="Returning user") {
+        account=accounts.get("returning-google@example.test") || {id:randomUUID(),email:"returning-google@example.test",name:"Returning Google creator"};
+        accounts.set(account.email,account);
+      } else {
+        account={id:randomUUID(),email:randomUUID()+"@example.test",name:null};accounts.set(account.email,account);
+      }
+      const code=randomUUID();codes.set(code,{...flow,account,expired:choice==="Expired code"});
+      destination.searchParams.set("code",code);
+    }
+    res.writeHead(302,{Location:destination.href});return res.end();
+  }
   if(url.pathname==="/auth/v1/user")return account ? send(200,user(account)) : send(401,{code:"bad_jwt",msg:"Invalid test token"});
   if(url.pathname==="/auth/v1/logout")return send(200,{});
   if(url.pathname==="/auth/v1/signup" || url.pathname==="/auth/v1/token") {
+    if(url.searchParams.get("grant_type")==="pkce") {
+      const code=codes.get(input.auth_code);codes.delete(input.auth_code);
+      const challenge=createHash("sha256").update(input.code_verifier || "").digest("base64url");
+      if(!code || code.expired || challenge!==code.challenge)return send(400,{code:"bad_code_verifier",msg:"PRIVATE fictional expired or invalid code"});
+      return send(200,issue(code.account));
+    }
     if(url.searchParams.get("grant_type")==="refresh_token") {
       const account=sessions.get(input.refresh_token);return account ? send(200,issue(account)) : send(401,{});
     }
@@ -78,6 +113,7 @@ server.listen(3219,"127.0.0.1",()=>{
   const child=spawn(process.execPath,["node_modules/next/dist/bin/next","start","--hostname","127.0.0.1","--port","3218"],{
     stdio:"inherit",env:{...process.env,POCKET_BASE_DEMO:"false",NEXT_PUBLIC_SUPABASE_URL:"http://127.0.0.1:3219",
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY:"fictional-publishable-key",OPENROUTER_API_KEY:"",SUPABASE_ACCESS_TOKEN:"",
+      POCKET_BASE_GOOGLE_SIGN_IN:"true",POCKET_BASE_SITE_URL:"http://127.0.0.1:3218",
       NODE_OPTIONS:"--import="+path.join(process.cwd(),"tests/fixtures/local-network-only.mjs")},
   });
   const stop=()=>{child.kill("SIGTERM");server.close();};

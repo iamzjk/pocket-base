@@ -35,7 +35,7 @@ export interface PublicGame {
 }
 export type GameIcon = Pick<PublicGame, "title" | "theme" | "iconSvg">;
 export type PublishedGame = Pick<PublicGame, "id" | "revisionId" | "title" | "description" | "theme"> & { creatorName: string; updatedAt: string; playCount: number };
-export interface CreatorProfile { displayName: string }
+export interface CreatorProfile { displayName: string | null }
 export interface GameLibrary { games: PublishedGame[]; hasMore: boolean; leaderboard: PublishedGame[] }
 export const LIBRARY_PAGE_SIZE = 24;
 export interface GeneratedGame {

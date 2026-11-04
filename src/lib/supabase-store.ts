@@ -3,6 +3,7 @@ import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, typ
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
 import { libraryQuery, normalizeLibrary } from "./library";
+import type { CreatorProfile } from "./types";
 
 type Row = Record<string, unknown>;
 function project(row: Row): Project {
@@ -21,6 +22,7 @@ function detail(row: Row): ProjectDetail {
 }
 export function databaseError(error: { message: string } | null) {
   if (!error) return;
+  if (error.message.includes("PS_PROFILE_REQUIRED")) throw new StudioError("Choose your public name on the account page to open your studio.", 403);
   if (error.message.includes("PS_NOT_FOUND")) throw new StudioError("That game or version couldn't be found.", 404);
   if (error.message.includes("PS_UNAUTHORIZED")) throw new StudioError("Ask a grown-up to sign in to your studio.", 401);
   if (error.message.includes("PS_CONFLICT")) throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
@@ -31,12 +33,12 @@ export function databaseError(error: { message: string } | null) {
 }
 export class SupabaseStore implements Store {
   constructor(private client: SupabaseClient) {}
-  async profile() {
+  async profile(): Promise<CreatorProfile> {
     const { data, error } = await this.client.rpc("creator_profile");
     databaseError(error);
     return data;
   }
-  async saveProfile(displayName: string) {
+  async saveProfile(displayName: string): Promise<CreatorProfile> {
     const { data, error } = await this.client.rpc("save_creator_profile", { p_display_name: publicName(displayName) });
     databaseError(error);
     return data;

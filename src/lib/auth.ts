@@ -38,10 +38,15 @@ export async function context(request?: Request): Promise<{ store: Store | null;
   const { data: { user } } = await client.auth.getUser();
   return { store: user ? new SupabaseStore(client) : null, user: user ? { id: user.id } : null, demo: false, configured: true };
 }
-export async function requireStore(request: Request) {
+export async function requireAccountStore(request: Request) {
   const ctx = await context(request);
   if (!ctx.store) throw new StudioError(ctx.configured ? "Ask a grown-up to sign in to your studio." : "A grown-up needs to finish setting up this studio.", ctx.configured ? 401 : 503);
   return ctx.store;
+}
+export async function requireStore(request: Request) {
+  const store = await requireAccountStore(request);
+  if (!(await store.profile())?.displayName) throw new StudioError("Choose your public name on the account page to open your studio.", 403);
+  return store;
 }
 export async function publicStore(request?: Request): Promise<Store> {
   const host = request ? request.headers.get("host") || new URL(request.url).host : (await headers()).get("host") || "";

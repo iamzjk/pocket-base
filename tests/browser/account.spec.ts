@@ -9,7 +9,7 @@ async function localAuth(page: Page) {
     if(new URL(route.request().url()).origin!=="http://127.0.0.1:3219") {
       void route.abort(); throw new Error("Auth browser checks must only contact the local test service.");
     }
-    const body=route.request().postDataJSON();
+    const body=route.request().method()==="POST" ? route.request().postDataJSON() : null;
     expect(body?.gotrue_meta_security?.captcha_token).toBeUndefined();
     return route.continue();
   });
