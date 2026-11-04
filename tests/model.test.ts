@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generationModel, generateGame, MAX_GENERATION_TOKENS, GENERATION_TIMEOUT_MS } from "../src/lib/generate";
+import { generationModel, generateGame, MAX_GENERATION_TOKENS } from "../src/lib/generate";
+import { generationSettings } from "../src/lib/config";
 import { starters } from "./fixtures/games";
 const revision = () => ({ ...starters[0], id: "r1", projectId: "p1", prompt: "Fictional idea", createdAt: new Date().toISOString() });
 test("free model requests enforce zero-price providers", async () => {
@@ -142,7 +143,7 @@ test("timeouts after successful headers are distinguished from malformed JSON an
     assert.equal(info.category,"timeout");assert.equal(info.stage,"body");assert.equal(info.status,200);assert.equal(info.generationId,"gen-test-123");
     // Some fetch implementations report a TypeError when the shared deadline
     // aborts the body. The signal, rather than the error name, is authoritative.
-    AbortSignal.timeout=(duration:number)=>{assert.equal(duration,GENERATION_TIMEOUT_MS);return AbortSignal.abort(new DOMException("PRIVATE deadline","TimeoutError"));};
+    AbortSignal.timeout=(duration:number)=>{assert.equal(duration,generationSettings().timeoutMs);return AbortSignal.abort(new DOMException("PRIVATE deadline","TimeoutError"));};
     globalThis.fetch=async()=>{const response=new Response("");response.json=async()=>{throw new TypeError("PRIVATE body error");};return response;};
     await assert.rejects(generateGame("PRIVATE idea",revision()),e=>{assert.equal((e as {status:number}).status,504);return true;});
     assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);

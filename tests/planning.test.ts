@@ -89,7 +89,7 @@ test("both phases share one deadline and expired planning cannot start a build",
         return body;
       };
       await assert.rejects(generateGame("Fictional idea"), error => { assert.equal((error as { status: number }).status, 504); return true; });
-      assert.deepEqual(timers.map(timer => timer.milliseconds), [300000, 60000]);
+      assert.deepEqual(timers.map(timer => timer.milliseconds), [290000, 60000]);
       assert.equal(calls, 2);
       timers.length = 0; calls = 0;
       globalThis.fetch = async () => {

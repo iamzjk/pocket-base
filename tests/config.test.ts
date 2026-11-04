@@ -25,7 +25,7 @@ async function environment(values:Record<string,string>,run:()=>unknown|Promise<
 test("default limits and rendered input limits match the documented configuration",async()=>{
   await environment({},()=>{
     assert.deepEqual(contentLimits(),{maxPromptCharacters:100000,maxGameBytes:5000000,maxMutationBytes:602048});
-    assert.deepEqual(generationSettings(),{timeoutMs:300000,maxTokens:100000,reasoningEffort:"medium",providerSort:"price"});
+    assert.deepEqual(generationSettings(),{timeoutMs:290000,maxTokens:100000,reasoningEffort:"medium",providerSort:"price"});
     assert.deepEqual(planningSettings(),{timeoutMs:60000,maxTokens:8000,maxPlanWords:400,reasoningEffort:"medium",providerSort:"price"});
     const markup=renderToStaticMarkup(createElement(Studio,{initialDisplayName:"",version:"test",view:"studio",initialProjects:[],initialLibrary:{games:[],hasMore:false},signedIn:false,demo:false,configured:true,aiConnected:false,maxPromptCharacters:73}));
     assert.ok(markup.includes('maxLength="73"'));
@@ -59,16 +59,17 @@ test("custom models require both price caps and free routing stays free",async()
 });
 
 test("invalid settings fail before any provider request and never echo their values",async()=>{
+  await environment({POCKET_BASE_GENERATION_TIMEOUT_MS:"290000"},()=>assert.equal(generationSettings().timeoutMs,290000));
   for(const [name,value,read] of [
     ["POCKET_BASE_MAX_PROMPT_CHARACTERS","100001",contentLimits],
     ["POCKET_BASE_MAX_GAME_BYTES","10000001",contentLimits],
-    ["POCKET_BASE_GENERATION_TIMEOUT_MS","350001",generationSettings],
+    ["POCKET_BASE_GENERATION_TIMEOUT_MS","290001",generationSettings],
     ["OPENROUTER_MAX_OUTPUT_TOKENS","1.5",generationSettings],
     ["OPENROUTER_REASONING_EFFORT","PRIVATE",generationSettings],
     ["OPENROUTER_PROVIDER_SORT","PRIVATE",generationSettings],
     ["OPENROUTER_MAX_INPUT_PRICE","PRIVATE",generationModel],
     ["POCKET_BASE_MAX_PLAN_WORDS","1001",planningSettings],
-    ["POCKET_BASE_PLANNING_TIMEOUT_MS","300001",planningSettings],
+    ["POCKET_BASE_PLANNING_TIMEOUT_MS","290001",planningSettings],
     ["OPENROUTER_PLANNER_REASONING_EFFORT","PRIVATE",planningSettings],
     ["OPENROUTER_PLANNER_PROVIDER_SORT","PRIVATE",planningSettings],
   ] as const){
