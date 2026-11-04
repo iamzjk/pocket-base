@@ -10,6 +10,7 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
     }
     const body = JSON.parse(String(init.body));
     const prompt = body.messages.at(-1).content;
+    const planning = body.messages[0].content.includes("single plan string");
     if (prompt.includes("timeout model")) return new Response(new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(" "));
@@ -17,6 +18,10 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
       },
     }), { headers: { "Content-Type": "application/json", "X-Generation-Id": "gen-fictional-timeout" } });
     if (prompt.includes("busy model")) return new Response("Fictional upstream capacity error", { status: 429 });
+    if (planning) return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(
+      prompt.includes("invalid plan model") ? { plan: "" } : { plan: "Make a fictional touch-friendly moon bubble game with clear controls." }
+    ) } }] });
+    if (prompt.includes("build failure model")) return new Response("Fictional build capacity error", { status: 429 });
     const updated = body.messages.length > 2;
     const color = updated ? "#b49bdf" : "#9ed9c7";
     const html = '<!doctype html><html><head><style>body{margin:0;min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:' + color +

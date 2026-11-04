@@ -27,7 +27,8 @@ Playground data is stored in ignored `.local/demo.json`. Set `POCKET_BASE_DATA_D
        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=your-publishable-or-legacy-anon-key
        SUPABASE_ACCESS_TOKEN=your-server-only-account-access-token
        OPENROUTER_API_KEY=your-server-only-key
-       OPENROUTER_MODEL=~deepseek/deepseek-flash-latest
+       OPENROUTER_MODEL=openai/gpt-6.1-terra
+       OPENROUTER_PLANNER_MODEL=openai/gpt-6.1-sol
 
 3. Create the **account access token** at https://supabase.com/dashboard/account/tokens. This is separate from the project's publishable key. Keep it server-only; never prefix it with `NEXT_PUBLIC_` or commit it.
 4. Run `npm run dev`. Startup checks the migration history and applies pending SQL files automatically. No SQL editor, database password, CLI login, or Keychain prompt is needed. `npm run db:migrate` applies migrations explicitly, including while playground mode is enabled.
@@ -70,16 +71,45 @@ To roll back Google access, set `POCKET_BASE_GOOGLE_SIGN_IN=false` and redeploy.
 
 ### Models and usage
 
-`OPENROUTER_MODEL` supports these explicit choices:
+Initial creation uses **GPT-6.1 Sol to plan, then GPT-6.1 Terra to build**, both with medium reasoning. The planner returns one game-specific plan of up to 400 words. The builder receives the original idea and that plan, then returns the complete game and logo. There is no automatic refinement, repair, retry, or model fallback. A user-requested edit makes one builder call using the complete current source and the latest change request.
 
-- `openrouter/free`, or a model ID ending in `:free`: provider prompt and completion prices are capped at zero.
-- `~deepseek/deepseek-flash-latest` (default; the leading `~` is required): a paid coding option, capped at **$0.30 input and $1.20 output per million tokens**. Requests prefer cheaper eligible providers, use medium reasoning, and allow at most 100,000 output tokens (including reasoning). If no provider fits those caps, the request stops. The alias follows the latest Flash release, including future versions beyond 4.1. `deepseek/deepseek-v4.1-flash` remains supported as an explicit pin, also with medium reasoning.
+`OPENROUTER_MODEL` selects the builder and editor; it defaults to `openai/gpt-6.1-terra`. `OPENROUTER_PLANNER_MODEL` selects the creation-only planner; it defaults to `openai/gpt-6.1-sol`. Both use the existing OpenRouter key and account credits; no separate OpenAI key is needed.
 
-No model automatically falls back to a different or more expensive model. Select a model through `OPENROUTER_MODEL` in `.env.local` or Vercel; DeepSeek uses the existing OpenRouter key and account credits. At the rate caps, an illustrative 2,000-input / 5,000-output token request costs $0.0066. Longer games and revision prompts use more tokens. Playing a finished game uses no inference. Rate caps and attempt limits are not a monthly spending cap; use an OpenRouter key budget for a fixed account spending allowance.
+- Terra (`openai/gpt-6.1-terra`, or `~openai/gpt-terra-latest`) defaults to caps of **$1 input and $5 output per million tokens**.
+- Sol (`openai/gpt-6.1-sol`) defaults to caps of **$2 input and $10 output per million tokens**.
+- DeepSeek (`~deepseek/deepseek-flash-latest`, or `deepseek/deepseek-v4.1-flash`) remains available with caps of **$0.30 input and $1.20 output per million tokens**. The leading `~` is required for the latest-model alias.
+- To require free inference, set **both** model settings to `openrouter/free` or another model ID ending in `:free`. When the builder is free and no planner override is set, the planner follows the same free model. An explicitly paid planner with a free builder is rejected before any model call. Free requests always cap both prices at zero.
+- Other paid model IDs require both explicit input and output price caps for their stage. Unsupported parameters and unavailable providers fail without switching models or retrying.
 
-The app reserves attempts transactionally in PostgreSQL before calling OpenRouter: **20 attempts per account per UTC day, 40 across the app, and one active generation per account**. Failed attempts count. A five-minute lease prevents abandoned requests from locking an account indefinitely. These conservative limits do not replace OpenRouter's own account/provider limits.
+The app reserves each model call transactionally before contacting OpenRouter: **20 model-call attempts per account per UTC day, 40 across the app, and one active generation request per account**. Creation normally consumes two attempts and editing one. If planning fails, the builder is not called or charged against the allowance. The planning lease remains active while reserving and running the builder, so another request cannot start between stages. Failed attempts count. A six-minute lease prevents abandoned requests from locking an account indefinitely. These limits are not a monthly spending cap; use an OpenRouter key budget for a fixed account allowance.
 
-Creation ideas and edit requests accept up to **5,000 characters** each; the system instructions and current game source are added separately. Initial creation and edits use separate, concise instructions. Each request asks for a short game-specific design brief before the code and uses medium reasoning on DeepSeek. Edits include the complete current HTML/CSS/JavaScript; they do not include all historical versions or ask for a new logo. Each create/edit uses a single model request, with no automatic retry loop. Finished games run locally in the browser and use no inference.
+Creation ideas and edit requests accept up to **100,000 characters** each by default; system instructions, the generated plan, and current source are added separately. The final game response includes a short inline design brief before its code. Plans stay internal to the creation request; only the original user idea is stored as the revision prompt. Edits do not include historical versions or request a new logo. Playing a finished game uses no inference.
+
+Set the following in `.env.local` or the server/build environment. Changes require restarting the server or redeploying. The server passes only the public prompt-length limit to the UI; credentials and provider settings stay server-side.
+
+| Setting | Default | Allowed values |
+| --- | --- | --- |
+| `POCKET_BASE_MAX_PROMPT_CHARACTERS` | `100000` | 1–100,000; enforced by the UI, API, and both stores |
+| `POCKET_BASE_MAX_GAME_BYTES` | `5000000` | 100–10,000,000 UTF-8 bytes; enforced before and after source validation and before saving |
+| `POCKET_BASE_GENERATION_TIMEOUT_MS` | `300000` | Shared planning/build deadline; 1,000–350,000 with the default hosting duration, including both response bodies |
+| `POCKET_BASE_PLANNING_TIMEOUT_MS` | `60000` | 1,000–the shared deadline; the default clamps to fit a shorter deadline |
+| `POCKET_BASE_MAX_PLAN_WORDS` | `400` | 1–1,000; a short game-specific plan, without code or a logo |
+| `OPENROUTER_MODEL` | `openai/gpt-6.1-terra` | Builder and editor model ID |
+| `OPENROUTER_PLANNER_MODEL` | `openai/gpt-6.1-sol` | Creation-only planner model ID; inherits a free builder when unset |
+| `OPENROUTER_MAX_OUTPUT_TOKENS` | `100000` | 1–128,000, including reasoning; must also fit the selected model |
+| `OPENROUTER_REASONING_EFFORT` | `medium` | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`; must be supported by the model |
+| `OPENROUTER_PROVIDER_SORT` | `price` | `price`, `latency`, or `throughput`; price caps always apply |
+| `OPENROUTER_MAX_INPUT_PRICE` | Model default | Non-negative USD per million input tokens |
+| `OPENROUTER_MAX_OUTPUT_PRICE` | Model default | Non-negative USD per million output tokens |
+| `OPENROUTER_PLANNER_MAX_OUTPUT_TOKENS` | `8000` | 1–128,000, including reasoning; must fit the planner model |
+| `OPENROUTER_PLANNER_REASONING_EFFORT` | `medium` | Same reasoning values as the builder, independently configured |
+| `OPENROUTER_PLANNER_PROVIDER_SORT` | `price` | `price`, `latency`, or `throughput` |
+| `OPENROUTER_PLANNER_MAX_INPUT_PRICE` | Model default | Non-negative USD per million input tokens |
+| `OPENROUTER_PLANNER_MAX_OUTPUT_PRICE` | Model default | Non-negative USD per million output tokens |
+
+Free model routing always caps both prices at zero, even when paid-model caps are configured. The mutation-body limit is derived from the configured prompt length so fully JSON-escaped Unicode prompts fit, with oversized bodies rejected while reading. Database constraints independently cap prompts at 100,000 characters and source at 10MB. Runtime settings can lower these ceilings without another migration; increasing the database ceilings requires a new migration. Game-source and private revision-history endpoints stream their JSON responses so 5MB games can be delivered without the buffered response-size cap. Incoming mutation bodies remain bounded; this does not add file uploads or bypass hosting upload limits.
+
+The 100,000-character default matches [Base44's documented chat API limit](https://docs.base44.com/api-reference/send-chat-message). Base44 does not publish a hard AI-builder timeout or an overall game-code cap in the reviewed documentation, so the requested 300-second and 5MB defaults are Pocket Base settings. External asset uploads, backend execution inside generated games, and Base44's file-storage allowances are separate capabilities and are not enabled by these settings.
 
 Generation instructions leave each new game's art direction, layout, and mechanics to the model and the user's preferences. The five `theme` values choose library cover artwork; they do not restrict the in-game palette or visual style. Short prompts receive a focused interpretation, with no mandatory scoring, levels, or timers. Edits preserve the existing game's identity unless the requested change calls for a redesign. These instructions encourage variety; live output comparisons are needed to assess how well a model follows them.
 
@@ -95,7 +125,7 @@ Provider errors distinguish a rejected OpenRouter key, an upstream provider cred
 
 Production builds apply pending migrations automatically when `SUPABASE_ACCESS_TOKEN` is set in Vercel's **Production** environment. Without it, builds verify the database was migrated locally and stop if migrations are pending. Preview builds only verify readiness and never modify the shared database, even if an admin token is present. GitHub Actions runs checks; Vercel's Git integration handles deployment without a custom deployment workflow.
 
-The generation route configures `maxDuration=300` and times out inference after 250 seconds (4 minutes 10 seconds), including reading the response body after headers arrive. Timeout, interrupted-connection, and malformed-response errors are distinguished. Transport diagnostics record only the stage, duration, HTTP status, fixed error category, and restricted OpenRouter generation ID; they never record prompts, game source, keys, or raw provider errors. Use Vercel Fluid Compute. The server uses Node.js and durable data lives in Supabase; Vercel's filesystem is never the production database.
+The generation function's hosting duration is configured in `vercel.json` as `functions["src/app/api/generate/route.ts"].maxDuration`, defaulting to **360 seconds**. **This duration requires Vercel Pro or Enterprise.** The complete model workflow defaults to **300 seconds shared between planning and building**, including both response bodies. Planning has a separate default cap of 60 seconds; the builder receives the remaining shared time. Its configured deadline must leave at least ten seconds before both the hosting duration and the six-minute transactional attempt lease expire. For **Vercel Hobby**, set `maxDuration` to `300` and `POCKET_BASE_GENERATION_TIMEOUT_MS=290000`; the workflow cannot receive a full five minutes and still leave cleanup time inside Hobby's five-minute request ceiling. With no explicit timeout override, lowering the hosting duration also lowers the default inference deadline to fit. Extending hosting duration alone does not extend the database lease. Timeout, interrupted-connection, and malformed-response errors are distinguished. Transport diagnostics record only the stage, duration, HTTP status, fixed error category, and restricted OpenRouter generation ID; they never record prompts, game source, keys, or raw provider errors. Use Vercel Fluid Compute. The server uses Node.js and durable data lives in Supabase; Vercel's filesystem is never the production database.
 
 Vercel Hobby is for personal, noncommercial projects and has resource limits. Supabase Free can pause projects after a week of inactivity; restore a paused project in its dashboard. Existing downloaded games can still play offline. Provider allowances can change.
 
@@ -129,7 +159,7 @@ Scores and supported progress are device-local and isolated by game. There is no
 
 ## Game boundary
 
-Games use self-contained HTML/CSS/plain JavaScript. External packages, backend execution, multiplayer, integrations, and raster image generation are deferred. Games may contain up to 1MB of source.
+Games use self-contained HTML/CSS/plain JavaScript. External packages, backend execution, multiplayer, integrations, and raster image generation are deferred. Games default to up to 5MB of source, configurable within the database ceiling.
 
 The trusted player runs generated code in an iframe with only `allow-scripts`, without `allow-same-origin`. A restrictive content security policy blocks fetch, workers, nested frames, and outside resources. Source is parsed and script syntax checked before saving. Game source is served as JSON and never inserted into the top-level builder or player document.
 
@@ -157,6 +187,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.2.5**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
+This release is **1.2.6**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.

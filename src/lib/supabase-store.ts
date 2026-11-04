@@ -3,7 +3,11 @@ import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, typ
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
 import { libraryQuery, normalizeLibrary } from "./library";
+<<<<<<< Updated upstream
 import type { CreatorProfile } from "./types";
+=======
+import { validateSaveLimits } from "./save-limits";
+>>>>>>> Stashed changes
 
 type Row = Record<string, unknown>;
 function project(row: Row): Project {
@@ -27,6 +31,7 @@ export function databaseError(error: { message: string } | null) {
   if (error.message.includes("PS_UNAUTHORIZED")) throw new StudioError("Ask a grown-up to sign in to your studio.", 401);
   if (error.message.includes("PS_CONFLICT")) throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
   if (error.message.includes("PS_BUSY")) throw new StudioError("A game is already being made. Give it a moment.", 409);
+  if (error.message.includes("PS_EXPIRED")) throw new StudioError("This game-making request expired. Please try again.", 409);
   if (error.message.includes("PS_QUOTA")) throw new StudioError("That's today's game-making allowance. Your games are still here to play.", 429);
   if (error.message.includes("PS_BAD_OPEN")) throw new StudioError("That game visit couldn't be recorded.");
   throw new StudioError("Your studio couldn't reach its saved games. Try again in a moment.", 503);
@@ -65,6 +70,7 @@ export class SupabaseStore implements Store {
     return revision ? { title: revision.title, theme: revision.theme as GameIcon["theme"], iconSvg: revision.icon_svg } : null;
   }
   async save(input: SaveInput) {
+    validateSaveLimits(input);
     const { data, error } = await this.client.rpc("save_game", {
       p_project_id: input.projectId || null, p_base_revision_id: input.baseRevisionId || null,
       p_title: input.title, p_description: input.description, p_theme: input.theme, p_html: input.html, p_prompt: input.prompt, p_icon_svg: input.iconSvg || null,
@@ -81,8 +87,10 @@ export class SupabaseStore implements Store {
     const { error } = await this.client.rpc("unpublish_game", { p_id: id });
     databaseError(error);
   }
-  async reserveGeneration() {
-    const { data, error } = await this.client.rpc("reserve_generation");
+  async reserveGeneration(parentAttemptId?: string) {
+    const { data, error } = parentAttemptId
+      ? await this.client.rpc("reserve_generation_step", { p_parent_id: parentAttemptId })
+      : await this.client.rpc("reserve_generation");
     databaseError(error);
     return data as string;
   }

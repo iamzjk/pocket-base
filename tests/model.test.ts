@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generationModel, generateGame, MAX_GENERATION_TOKENS, GENERATION_TIMEOUT_MS } from "../src/lib/generate";
 import { starters } from "./fixtures/games";
+const revision = () => ({ ...starters[0], id: "r1", projectId: "p1", prompt: "Fictional idea", createdAt: new Date().toISOString() });
 test("free model requests enforce zero-price providers", async () => {
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, fetchOriginal = globalThis.fetch;
   try {
@@ -17,10 +18,10 @@ test("free model requests enforce zero-price providers", async () => {
       assert.deepEqual(body.provider.max_price, { prompt: 0, completion: 0 });
       assert.equal(body.provider.require_parameters, true);
       assert.equal(body.models, undefined);
-      return Response.json({ choices: [{ message: { content: JSON.stringify(starters[0]) }, finish_reason: "stop" }] });
+      return Response.json({ choices: [{ message: { content: JSON.stringify(calls === 1 ? { plan: "A fictional star-catching game." } : starters[0]) }, finish_reason: "stop" }] });
     };
     assert.equal((await generateGame("A fictional star game")).title, "Star Catcher");
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     globalThis.fetch = async () => new Response("provider details should not escape", { status: 429 });
     await assert.rejects(generateGame("test"), /allowance/);
     delete process.env.OPENROUTER_API_KEY;
@@ -36,7 +37,8 @@ test("DeepSeek is explicit, price capped, and uses medium reasoning without mode
   const previous = process.env.OPENROUTER_MODEL, key = process.env.OPENROUTER_API_KEY, originalFetch = globalThis.fetch;
   try {
     delete process.env.OPENROUTER_MODEL;
-    assert.equal(generationModel().model, "~deepseek/deepseek-flash-latest");
+    assert.equal(generationModel().model, "openai/gpt-6.1-terra");
+    assert.equal(generationModel("plan").model, "openai/gpt-6.1-sol");
     process.env.OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash";
     process.env.OPENROUTER_API_KEY = "fictional-test-key";
     let calls = 0;
@@ -52,7 +54,7 @@ test("DeepSeek is explicit, price capped, and uses medium reasoning without mode
       assert.equal(body.models, undefined);
       return Response.json({ choices: [{ message: { content: JSON.stringify(starters[0]) }, finish_reason: "stop" }] });
     };
-    assert.equal((await generateGame("A fictional star game")).title, "Star Catcher");
+    assert.equal((await generateGame("A fictional star game", revision())).title, "Star Catcher");
     assert.equal(calls, 1);
     globalThis.fetch = async () => Response.json({ error: { message: "No endpoint under price cap" } }, { status: 404 });
     await assert.rejects(generateGame("test"), error => {
@@ -142,7 +144,7 @@ test("timeouts after successful headers are distinguished from malformed JSON an
     // aborts the body. The signal, rather than the error name, is authoritative.
     AbortSignal.timeout=(duration:number)=>{assert.equal(duration,GENERATION_TIMEOUT_MS);return AbortSignal.abort(new DOMException("PRIVATE deadline","TimeoutError"));};
     globalThis.fetch=async()=>{const response=new Response("");response.json=async()=>{throw new TypeError("PRIVATE body error");};return response;};
-    await assert.rejects(generateGame("PRIVATE idea"),e=>{assert.equal((e as {status:number}).status,504);return true;});
+    await assert.rejects(generateGame("PRIVATE idea",revision()),e=>{assert.equal((e as {status:number}).status,504);return true;});
     assert.equal(JSON.stringify(diagnostics).includes("PRIVATE"),false);
   } finally {
     globalThis.fetch=originalFetch;AbortSignal.timeout=originalTimeout;console.warn=originalWarn;
@@ -176,18 +178,21 @@ test("new games plan and create an SVG icon while edits preserve the stored icon
     const requests: { messages: { content: string }[]; max_tokens: number }[] = [];
     globalThis.fetch = async (_url,init) => {
       requests.push(JSON.parse(String(init?.body)));
-      return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ ...starters[0], designBrief: "A fictional focused design.", iconSvg: requests.length === 1 ? firstIcon : changedIcon }) } }] });
+      return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(requests.length === 1
+        ? { plan: "A fictional focused game design." }
+        : { ...starters[0], designBrief: "A fictional focused design.", iconSvg: requests.length === 2 ? firstIcon : changedIcon }) } }] });
     };
     const created = await generateGame("A fictional new game"); assert.ok(created.iconSvg?.includes('#123456'));
     const previous = { ...created, id: "r1", projectId: "p1", prompt: "Fictional", createdAt: new Date().toISOString() };
     const edited = await generateGame("Make the game faster",previous);
     assert.equal(edited.iconSvg,created.iconSvg);
-    assert.equal(requests.length,2); assert.equal(requests[0].max_tokens,100_000);
-    assert.match(requests[0].messages[0].content,/designBrief/);
-    assert.match(requests[0].messages[0].content,/also return iconSvg/);
-    assert.match(requests[1].messages[0].content,/Omit iconSvg/);
-    assert.ok(requests[1].messages.some(message => message.content.includes(previous.html)));
-    assert.equal(requests[1].messages.some(message => message.content.includes(previous.iconSvg!)),false);
+    assert.equal(requests.length,3); assert.equal(requests[0].max_tokens,8_000); assert.equal(requests[1].max_tokens,100_000);
+    assert.match(requests[0].messages[0].content,/single plan string/);
+    assert.match(requests[1].messages[0].content,/designBrief/);
+    assert.match(requests[1].messages[0].content,/also return iconSvg/);
+    assert.match(requests[2].messages[0].content,/Omit iconSvg/);
+    assert.ok(requests[2].messages.some(message => message.content.includes(previous.html)));
+    assert.equal(requests[2].messages.some(message => message.content.includes(previous.iconSvg!)),false);
     globalThis.fetch = async () => Response.json({ choices: [{ finish_reason: "length", message: { content: "incomplete game" } }] });
     await assert.rejects(generateGame("Fictional long game"),/response limit/);
   } finally {

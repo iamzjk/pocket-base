@@ -8,6 +8,21 @@ import { DemoStore, DEMO_OWNER } from "../src/lib/demo-store";
 import { classicListings } from "../src/lib/classic-games";
 import { starters } from "./fixtures/games";
 const emptyLibrary = { games: classicListings.map(game => ({ ...game, playCount: 0 })), hasMore: false, leaderboard: [] };
+test("an active local generation remains locked for six minutes, including across UTC midnight",async()=>{
+  const directory=await mkdtemp(path.join(os.tmpdir(),"pocket-lease-"));
+  try{
+    const store=new DemoStore(DEMO_OWNER,directory);
+    const id=await store.reserveGeneration();
+    const file=path.join(directory,"demo.json");
+    const state=JSON.parse(await readFile(file,"utf8"));
+    state.attempts[0].at=new Date(Date.now()-330000).toISOString();
+    await writeFile(file,JSON.stringify(state));
+    await assert.rejects(store.reserveGeneration(),/already being made/);
+    state.attempts[0].at=new Date(Date.now()-361000).toISOString();
+    await writeFile(file,JSON.stringify(state));
+    assert.notEqual(await store.reserveGeneration(),id);
+  }finally{await rm(directory,{recursive:true,force:true});}
+});
 test("draft revisions, ownership, publish/restore, and stale writes", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "pocket-store-test-"));
   try {

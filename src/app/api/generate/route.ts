@@ -1,14 +1,15 @@
 import { requireStore } from "@/lib/auth";
 import { errorResponse, readMutation, requireId, StudioError } from "@/lib/errors";
 import { generationModel, generateGame } from "@/lib/generate";
-import { MAX_PROMPT_CHARACTERS } from "@/lib/limits";
-export const maxDuration = 300;
+import { contentLimits, generationSettings, planningSettings } from "@/lib/config";
+import { jsonResponse } from "@/lib/json-response";
 export async function POST(request: Request) {
   try {
     const body = await readMutation(request);
     const store = await requireStore(request);
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
-    if (!prompt || prompt.length > MAX_PROMPT_CHARACTERS) throw new StudioError("Describe your idea in 1 to 5,000 characters.");
+    const { maxPromptCharacters } = contentLimits();
+    if (!prompt || prompt.length > maxPromptCharacters) throw new StudioError("Describe your idea in 1 to " + maxPromptCharacters.toLocaleString("en-US") + " characters.");
     let previous;
     let projectId: string | undefined;
     let baseRevisionId: string | undefined;
@@ -22,11 +23,17 @@ export async function POST(request: Request) {
     }
     if (!process.env.OPENROUTER_API_KEY) throw new StudioError("AI game-making isn't connected yet. Ask a grown-up to connect it; you can still play published games in the library.", 503);
     generationModel();
+    generationSettings();
+    if (!previous) { generationModel("plan"); planningSettings(); }
     const attempt = await store.reserveGeneration();
+    let buildAttempt: string | undefined;
     try {
-      const game = await generateGame(prompt, previous);
-      return Response.json(await store.save({ ...game, prompt, projectId, baseRevisionId }));
+      const game = await generateGame(prompt, previous, async () => {
+        buildAttempt = await store.reserveGeneration(attempt);
+      });
+      return jsonResponse(await store.save({ ...game, prompt, projectId, baseRevisionId }));
     } finally {
+      if (buildAttempt) await store.finishGeneration(buildAttempt).catch(() => {});
       await store.finishGeneration(attempt).catch(() => {});
     }
   } catch (error) { return errorResponse(error); }

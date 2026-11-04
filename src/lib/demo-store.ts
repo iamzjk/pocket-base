@@ -5,6 +5,8 @@ import { requireId, StudioError } from "./errors";
 import { classicGames, classicListings } from "./classic-games";
 import { publicName } from "./profile";
 import { libraryQuery } from "./library";
+import { validateSaveLimits } from "./save-limits";
+import { GENERATION_LEASE_SECONDS } from "./limits";
 import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type Store, type ProjectDetail, type PublicGame, type GameLibrary, type GameIcon } from "./types";
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
@@ -64,6 +66,7 @@ export class DemoStore implements Store {
     });
   }
   async save(input: SaveInput): Promise<ProjectDetail> {
+    validateSaveLimits(input);
     return this.transaction(s => {
       const now = new Date().toISOString();
       const p = input.projectId ? this.owned(s, input.projectId) : {
@@ -95,13 +98,17 @@ export class DemoStore implements Store {
     }, true);
   }
   async unpublish(id: string) { await this.transaction(s => { const p = this.owned(s, id); p.publishedRevisionId = null; p.publishedAt = null; }, true); }
-  async reserveGeneration() {
+  async reserveGeneration(parentAttemptId?: string) {
     return this.transaction(s => {
+      const active = (a: State["attempts"][number]) => a.ownerId === this.ownerId && !a.finished
+        && Date.now() - Date.parse(a.at) < GENERATION_LEASE_SECONDS * 1_000;
+      if (parentAttemptId && !s.attempts.some(a => a.id === parentAttemptId && active(a)))
+        throw new StudioError("This game-making request expired. Please try again.", 409);
       const today = new Date().toISOString().slice(0, 10);
       const attempts = s.attempts.filter(a => a.at.startsWith(today));
       if (attempts.length >= 40 || attempts.filter(a => a.ownerId === this.ownerId).length >= 20)
         throw new StudioError("That's today's game-making allowance. Your games are still here to play.", 429);
-      if (attempts.some(a => a.ownerId === this.ownerId && !a.finished && Date.now() - Date.parse(a.at) < 300_000))
+      if (s.attempts.some(a => a.id !== parentAttemptId && active(a)))
         throw new StudioError("A game is already being made. Give it a moment.", 409);
       const id = randomUUID();
       s.attempts.push({ id, ownerId: this.ownerId, at: new Date().toISOString(), finished: false });

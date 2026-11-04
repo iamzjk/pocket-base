@@ -5,10 +5,10 @@ import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Gl
 import { PocketMark, GameArtwork } from "./artwork";
 import type { Project, ProjectDetail, Revision, CreatorProfile } from "@/lib/types";
 import { startGame } from "../../public/sandbox.js";
-import { MAX_LIBRARY_QUERY_CHARACTERS, MAX_PROMPT_CHARACTERS } from "@/lib/limits";
+import { MAX_LIBRARY_QUERY_CHARACTERS } from "@/lib/limits";
 import { normalizeLibrary, type LibraryResponse } from "@/lib/library";
 
-type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; initialError?: string; initialLibraryError?: string };
+type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; maxPromptCharacters: number; initialError?: string; initialLibraryError?: string };
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(path, body === undefined ? { cache: "no-store", signal } : {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal,
@@ -227,7 +227,7 @@ export function Studio(props: Props) {
           <p className="hero-description">A game, a doodle, a tiny adventure.<br className="desktop-break"/> What will you bring to life today?</p>
           <form className="idea-box" onSubmit={generate}>
             <label className="sr-only" htmlFor="idea">Describe your game idea</label>
-            <textarea ref={promptRef} id="idea" placeholder="A game where I catch stars in outer space…" value={prompt} maxLength={MAX_PROMPT_CHARACTERS} onChange={e => setPrompt(e.target.value)} disabled={!!busy}/>
+            <textarea ref={promptRef} id="idea" placeholder="A game where I catch stars in outer space…" value={prompt} maxLength={props.maxPromptCharacters} onChange={e => setPrompt(e.target.value)} disabled={!!busy}/>
             <div className="idea-bottom"><span><Sparkles size={14}/>{busy === "generate" ? "Making a little magic…" : "Your imagination starts here"}</span>
               <button className="primary-button" type="submit" disabled={!prompt.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={17}/> : <>Make it <ArrowUpRight size={17}/></>}</button></div>
           </form>
@@ -298,7 +298,7 @@ export function Studio(props: Props) {
         <section id="studio-chat" className="chat-panel" aria-label="Game conversation"><div ref={chatScroll} className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Tell me what you'd like to change. A new character? More stars? A whole new twist?</p></div>
           {[...project.revisions].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map((r,i) => <div className="conversation" key={r.id}><div className="user-message">{r.prompt}</div><div className="studio-message"><Sparkles size={15}/><div><p>{r.description}</p><span className="version-pill"><Check size={11}/> Version {i+1} saved {r.id === project.currentRevisionId && "· current"}</span></div></div></div>)}
           {busy === "generate" && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> Making a little magic. This may take a minute…</div>}</div>
-          <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={MAX_PROMPT_CHARACTERS} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
+          <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={props.maxPromptCharacters} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
         </section>
         <section id="studio-play" className="preview-panel" aria-label="Playable game preview">{current && <GamePreview revision={current} projectId={project.id}/>}<p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p></section>
       </div>

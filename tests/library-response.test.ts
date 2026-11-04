@@ -33,7 +33,7 @@ test("Supabase public library responses normalize older database results for SSR
 test("the library renders older initial props without missing leaderboard or count crashes", () => {
   const markup = renderToStaticMarkup(createElement(Studio, { initialDisplayName: "", version: "test",
     view: "library", initialProjects: [], initialLibrary: legacy, signedIn: false, demo: false,
-    configured: true, aiConnected: false }));
+    configured: true, aiConnected: false, maxPromptCharacters: 100_000 }));
   assert.ok(markup.includes("Legacy library fixture"));
   assert.ok(markup.includes("0 plays"));
   assert.ok(markup.includes("Play a game to start the leaderboard."));

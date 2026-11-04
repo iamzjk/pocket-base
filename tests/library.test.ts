@@ -36,7 +36,7 @@ test("release migrations restore originals, preserve published dates, and expose
     await db.exec("reset role");
     await db.query("update public.revisions set created_at='2026-01-01T00:00:00Z' where id=$1",[legacy.current_revision_id]);
     await db.query("update public.projects set updated_at='2026-10-01T00:00:00Z' where id=$1",[legacy.id]);
-    for (const file of ["005_library_profiles.sql","006_signup_protection.sql","007_classic_games.sql","008_longer_prompts.sql","009_game_play_counts.sql","010_library_search.sql","012_classic_game_logos.sql"]) await migration(db,file);
+    for (const file of ["005_library_profiles.sql","006_signup_protection.sql","007_classic_games.sql","008_longer_prompts.sql","009_game_play_counts.sql","010_library_search.sql","011_configurable_generation_limits.sql","012_classic_game_logos.sql"]) await migration(db,file);
     const page = async (offset=0,limit=24) => (await db.query<{ l: GameLibrary }>("select public.published_games($1,$2) l",[offset,limit])).rows[0].l;
     await t.test("legacy names use email local parts and dates use the public revision", async () => {
       const game=(await page()).games.find(g=>g.id===legacy.id)!;
@@ -85,10 +85,28 @@ test("release migrations restore originals, preserve published dates, and expose
       await db.query("select public.select_revision($1,$2,'publish')",[legacy.id,legacy.current_revision_id]);
       assert.notEqual((await page()).games.find(g=>g.id===legacy.id)!.updatedAt,changed.updatedAt);
     });
-    await t.test("saved revision prompts accept 5,000 characters and reject 5,001",async()=>{
+    await t.test("saved revision prompts accept 100,000 characters and reject 100,001",async()=>{
       await asUser(db,owners[0]);
-      await db.query("select public.save_game(null,null,'Long prompt','Description','mint',$1,$2)",[classicGames[0].html,"星".repeat(5000)]);
-      await assert.rejects(db.query("select public.save_game(null,null,'Too long','Description','mint',$1,$2)",[classicGames[0].html,"a".repeat(5001)]),/revisions_prompt_check/);
+      await db.query("select public.save_game(null,null,'Long prompt','Description','mint',$1,$2)",[classicGames[0].html,"星".repeat(100000)]);
+      await assert.rejects(db.query("select public.save_game(null,null,'Too long','Description','mint',$1,$2)",[classicGames[0].html,"a".repeat(100001)]),/revisions_prompt_check/);
+    });
+    await t.test("source ceilings allow runtime limits above 1MB while bounding database writes",async()=>{
+      await asUser(db,owners[0]);
+      await db.query("select public.save_game(null,null,'Large source','Description','mint',$1,'Fictional')",[classicGames[0].html+" ".repeat(1000000)]);
+      await assert.rejects(db.query("select public.save_game(null,null,'Too large','Description','mint',repeat(' ',10000001),'Fictional')"),/revisions_html_check/);
+    });
+    await t.test("the active lease covers a five-minute inference and releases after six minutes",async()=>{
+      await asUser(db,owners[0]);
+      const first=(await db.query<{id:string}>("select public.reserve_generation() id")).rows[0].id;
+      await db.exec("reset role");
+      await db.query("update public.generation_attempts set created_at=now()-interval '330 seconds' where id=$1",[first]);
+      await asUser(db,owners[0]);
+      await assert.rejects(db.query("select public.reserve_generation()"),/PS_BUSY/);
+      await db.exec("reset role");
+      await db.query("update public.generation_attempts set created_at=now()-interval '361 seconds' where id=$1",[first]);
+      await asUser(db,owners[0]);
+      const next=(await db.query<{id:string}>("select public.reserve_generation() id")).rows[0].id;
+      await db.query("select public.finish_generation($1)",[next]);
     });
     await t.test("public opens deduplicate, expire, and preserve publication dates and totals", async () => {
       await asUser(db, owners[0]);

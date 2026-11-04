@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { DemoStore, DEMO_OWNER } from "../../src/lib/demo-store";
@@ -510,21 +510,46 @@ test("original catalog games show public metadata in one phone column and have d
   await expect(page.getByRole("status")).toContainText("Public name saved");
 });
 
-test("creation and edit requests accept 5,000 characters and reject larger prompts",async({page,request})=>{
+test("5MB source streams through private, published, and offline play responses",async({page,request})=>{
+  const original=starters[0];
+  const html=original.html.replace("</body>","<!--"+"x".repeat(4900000)+"--></body>");
+  const game=await store().save({...original,html,title:"Large fictional game",prompt:"Fictional large-source fixture"});
+  const detail=await request.get("/api/projects/"+game.id);
+  expect(detail.headers()["content-type"]).toContain("application/json");
+  expect(detail.headers()["cache-control"]).toBe("private, no-store");
+  expect((await detail.json()).revisions[0].html).toBe(html);
+  const published=await request.post("/api/projects/"+game.id+"/versions",{headers:{Origin:"http://127.0.0.1:3217"},data:{action:"publish",revisionId:game.currentRevisionId}});
+  expect(published.status()).toBe(200);
+  expect((await published.json()).publishedRevisionId).toBe(game.currentRevisionId);
+  const publicResponse=await request.get("/play/"+game.id+"/game.json");
+  expect(publicResponse.status()).toBe(200);
+  expect((await publicResponse.json()).html).toBe(html);
+  await page.setViewportSize({width:390,height:844});
+  await page.goto("/play/"+game.id+"/");
+  await expect(page.frameLocator("iframe").getByRole("heading",{name:"Star Catcher"})).toBeVisible();
+  await expect(page.getByText("Ready offline",{exact:true})).toBeVisible();
+  await page.context().setOffline(true);
+  await page.reload();
+  await expect(page.frameLocator("iframe").getByRole("heading",{name:"Star Catcher"})).toBeVisible();
+  await expect(page.getByText("Playing offline",{exact:true})).toBeVisible();
+  await page.context().setOffline(false);
+});
+
+test("creation and edit requests accept 100,000 characters and reject larger prompts",async({page,request})=>{
   const headers={Origin:"http://127.0.0.1:3217","Content-Type":"application/json"};
-  expect((await request.post("/api/generate",{headers,data:{prompt:"a".repeat(5001)}})).status()).toBe(400);
-  const created=await request.post("/api/generate",{headers,data:{prompt:"星".repeat(5000)}});
+  expect((await request.post("/api/generate",{headers,data:{prompt:"a".repeat(100001)}})).status()).toBe(400);
+  const created=await request.post("/api/generate",{headers,data:{prompt:"星".repeat(100000)}});
   expect(created.status()).toBe(200);
   const game=await created.json();
-  expect(game.revisions[0].prompt.length).toBe(5000);
-  const escaped=JSON.stringify({prompt:"星".repeat(5000),projectId:game.id,baseRevisionId:game.currentRevisionId}).replaceAll("星","\\u661f");
+  expect(game.revisions[0].prompt.length).toBe(100000);
+  const escaped=JSON.stringify({prompt:"星".repeat(100000),projectId:game.id,baseRevisionId:game.currentRevisionId}).replaceAll("星","\\u661f");
   const edited=await request.post("/api/generate",{headers,data:escaped});
   expect(edited.status()).toBe(200);
   expect((await edited.json()).revisions).toHaveLength(2);
   await page.goto("/");
-  await expect(page.locator("#idea")).toHaveAttribute("maxlength","5000");
+  await expect(page.locator("#idea")).toHaveAttribute("maxlength","100000");
   await page.goto("/?game="+game.id);
-  await expect(page.locator("#change")).toHaveAttribute("maxlength","5000");
+  await expect(page.locator("#change")).toHaveAttribute("maxlength","100000");
 });
 
 test("timeouts while reading successful provider responses keep new and edited games safe",async({page,request})=>{
@@ -542,4 +567,30 @@ test("timeouts while reading successful provider responses keep new and edited g
   expect(unchanged?.currentRevisionId).toBe(game.currentRevisionId);
   expect(unchanged?.revisions).toHaveLength(1);
   await expect(page.getByRole("button",{name:"Make this change"})).toBeEnabled();
+});
+
+test("new games reserve two model calls, edits reserve one, and failed phases release their leases",async({request})=>{
+  const headers={Origin:"http://127.0.0.1:3217"};
+  const attempts=async()=>JSON.parse(await readFile(path.join(process.env.POCKET_BASE_E2E_DATA_DIR!,"demo.json"),"utf8")).attempts as {finished:boolean}[];
+  const initial=await attempts();
+  const created=await request.post("/api/generate",{headers,data:{prompt:"Fictional planning pipeline game"}});
+  expect(created.status()).toBe(200);
+  const game=await created.json();
+  expect(game.revisions).toHaveLength(1);
+  expect(game.revisions[0].prompt).toBe("Fictional planning pipeline game");
+  expect((await attempts()).length-initial.length).toBe(2);
+  const edit=await request.post("/api/generate",{headers,data:{prompt:"Fictional brighter bubbles",projectId:game.id,baseRevisionId:game.currentRevisionId}});
+  expect(edit.status()).toBe(200);
+  expect((await edit.json()).revisions).toHaveLength(2);
+  expect((await attempts()).length-initial.length).toBe(3);
+  const projects=await store().list();
+  const invalidPlan=await request.post("/api/generate",{headers,data:{prompt:"invalid plan model"}});
+  expect(invalidPlan.status()).toBe(502);
+  expect((await invalidPlan.json()).error).toContain("design plan");
+  expect((await attempts()).length-initial.length).toBe(4);
+  const failedBuild=await request.post("/api/generate",{headers,data:{prompt:"build failure model"}});
+  expect(failedBuild.status()).toBe(429);
+  expect((await attempts()).length-initial.length).toBe(6);
+  expect((await store().list()).length).toBe(projects.length);
+  expect((await attempts()).every(attempt=>attempt.finished)).toBe(true);
 });
