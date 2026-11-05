@@ -160,6 +160,8 @@ Each game has its own manifest, 192px/512px install icons, Apple touch icon, sta
 - **Unpublish:** stops new online access and downloads. Previously downloaded copies can remain playable offline.
 - **Delete:** in My studio, open your game → **Game options** (the three dots beside Publish or Unpublish) → **Delete game**. Confirm the named game to permanently remove it and all saved versions, public listings, online play, and play counts. Only its owner can delete it. Previously downloaded copies may remain playable offline. Generation attempts still count toward the daily allowance.
 
+The mobile player and studio preview stay fixed within the screen during touch gestures. Games can still scroll overflowing content and menus, and canvas gestures stay with the game. Installed games receive player fixes through the same offline asset updates.
+
 Scores and supported progress are device-local and isolated by game. There is no cross-device sync. Browser and installed-app storage can be separate, particularly on iOS. Users can clear downloaded data.
 
 ## Game boundary
@@ -192,6 +194,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.3.4**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
+This release is **1.3.6**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.

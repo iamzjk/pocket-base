@@ -1,9 +1,37 @@
 const GAME_POLICY = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'";
 
+// This function is also embedded in the opaque frame, so keep it self-contained.
+function containGameTouches() {
+  let previous;
+  document.addEventListener("touchstart", event => {
+    previous = event.touches.length === 1 ? event.touches[0] : undefined;
+  }, { passive: true });
+  document.addEventListener("touchmove", event => {
+    if (!previous || event.touches.length !== 1) { previous = undefined; return; }
+    const touch = event.touches[0];
+    const dx = previous.clientX - touch.clientX, dy = previous.clientY - touch.clientY;
+    previous = touch;
+    const horizontal = Math.abs(dx) > Math.abs(dy);
+    const delta = horizontal ? dx : dy;
+    if (!delta) return;
+    // Let actual menus and overflowing game content scroll, but consume drags
+    // on the play surface and at scroll edges (including older mobile Safari).
+    for (let element = event.target instanceof Element ? event.target : null; element; element = element.parentElement) {
+      const style = getComputedStyle(element);
+      const overflow = horizontal ? style.overflowX : style.overflowY;
+      const position = horizontal ? element.scrollLeft : element.scrollTop;
+      const maximum = horizontal ? element.scrollWidth - element.clientWidth : element.scrollHeight - element.clientHeight;
+      if (/^(auto|scroll)$/.test(overflow) && maximum > 0 && (delta < 0 ? position > 0 : position < maximum - 1)) return;
+    }
+    if (event.cancelable) event.preventDefault();
+  }, { passive: false });
+}
+
 export function sandboxDocument(html, channel) {
   const config = JSON.stringify(channel).replace(/</g, "\\u003c");
   const bridge = [
     "(function(){",
+    "(" + containGameTouches.toString() + ")();",
     "const channel=" + config + ";let seq=0;const waiting=new Map();",
     "function call(type,key,value){return new Promise((resolve,reject)=>{",
     "const id=String(++seq);const timer=setTimeout(()=>{waiting.delete(id);reject(new Error('Storage is unavailable'));},4000);",
@@ -18,7 +46,7 @@ export function sandboxDocument(html, channel) {
     "})();"
   ].join("");
   return '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="' + GAME_POLICY +
-    '"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>html,body{margin:0;min-height:100%;overscroll-behavior:none}*{box-sizing:border-box}</style><script>' +
+    '"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>html,body{margin:0;width:100%;height:100%;overscroll-behavior:none!important}html{overflow:hidden!important}body{min-height:100%;overflow-x:hidden!important;overflow-y:auto}*{box-sizing:border-box}canvas{touch-action:none}</style><script>' +
     bridge + "</script></head><body>" + html + "</body></html>";
 }
 

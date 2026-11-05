@@ -14,8 +14,9 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;animation:none!important;transition:none!important}}
 
 /* Keep the workspace within the screen; only the conversation scrolls. */
+html:has(.is-editing),body:has(.is-editing){overflow:hidden;overscroll-behavior:none}
 .studio{min-height:100svh;padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
-.is-editing{height:var(--studio-height,100dvh);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.is-editing{position:fixed;inset:0;width:100%;height:var(--studio-height,100dvh);min-height:0;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:none}
 .is-editing .topbar{width:100%;flex-shrink:0}
 .is-editing .error-banner{flex-shrink:0;width:calc(100% - 24px)}
 .editor{width:100%;flex:1;min-height:0;display:flex;flex-direction:column;padding-bottom:max(16px,env(safe-area-inset-bottom))}

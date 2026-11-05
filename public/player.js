@@ -1,6 +1,6 @@
-import { startGame } from "/sandbox.js?v=7";
+import { startGame } from "/sandbox.js?v=8";
 
-const PLAYER_VERSION = "7";
+const PLAYER_VERSION = "8";
 const gameId = document.body.dataset.gameId;
 const base = "/play/" + gameId + "/";
 const stage = document.getElementById("stage");
@@ -70,7 +70,7 @@ async function prepareOffline() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(base);
     registration = existing?.active && existing.scope === new URL(base, location.href).href
-      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=7", { scope: base });
+      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=8", { scope: base });
     if (navigator.onLine) await registration.update().catch(() => {});
     if (registration.installing || registration.waiting || !registration.active) {
       await new Promise((resolve, reject) => {
