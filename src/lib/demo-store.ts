@@ -98,6 +98,15 @@ export class DemoStore implements Store {
     }, true);
   }
   async unpublish(id: string) { await this.transaction(s => { const p = this.owned(s, id); p.publishedRevisionId = null; p.publishedAt = null; }, true); }
+  async deleteGame(id: string) {
+    await this.transaction(s => {
+      const p = this.owned(s, id);
+      s.projects = s.projects.filter(project => project.id !== p.id);
+      s.revisions = s.revisions.filter(revision => revision.projectId !== p.id);
+      if (s.playCounts) delete s.playCounts[p.id];
+      if (s.playVisitors) s.playVisitors = s.playVisitors.filter(visit => visit.gameId !== p.id);
+    }, true);
+  }
   async reserveGeneration(parentAttemptId?: string) {
     return this.transaction(s => {
       const active = (a: State["attempts"][number]) => a.ownerId === this.ownerId && !a.finished

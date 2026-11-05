@@ -154,6 +154,7 @@ Each game has its own manifest, 192px/512px install icons, Apple touch icon, sta
 - **Offline:** wait for **Ready offline**. The complete game and required player files are cached. PWA support requires production HTTPS or localhost; an ordinary HTTP LAN URL is insufficient.
 - **Updates:** check on launch and when returning online or to the app. Download the complete release before offering **Update & restart**. Active gameplay is not replaced mid-session. Incomplete downloads preserve the previous release.
 - **Unpublish:** stops new online access and downloads. Previously downloaded copies can remain playable offline.
+- **Delete:** in My studio, open your game → **Game options** (the three dots beside Publish) → **Delete game**. Confirm the named game to permanently remove it and all saved versions, public listings, online play, and play counts. Only its owner can delete it. Previously downloaded copies may remain playable offline. Generation attempts still count toward the daily allowance.
 
 Scores and supported progress are device-local and isolated by game. There is no cross-device sync. Browser and installed-app storage can be separate, particularly on iOS. Users can clear downloaded data.
 

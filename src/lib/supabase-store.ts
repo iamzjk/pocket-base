@@ -84,6 +84,10 @@ export class SupabaseStore implements Store {
     const { error } = await this.client.rpc("unpublish_game", { p_id: id });
     databaseError(error);
   }
+  async deleteGame(id: string) {
+    const { error } = await this.client.rpc("delete_game", { p_id: id });
+    databaseError(error);
+  }
   async reserveGeneration(parentAttemptId?: string) {
     const { data, error } = parentAttemptId
       ? await this.client.rpc("reserve_generation_step", { p_parent_id: parentAttemptId })

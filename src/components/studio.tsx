@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw, Search } from "lucide-react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw, Search, Ellipsis, Trash2 } from "lucide-react";
 import { PocketMark, GameArtwork } from "./artwork";
 import type { Project, ProjectDetail, Revision, CreatorProfile } from "@/lib/types";
 import { startGame } from "../../public/sandbox.js";
@@ -9,9 +9,9 @@ import { MAX_LIBRARY_QUERY_CHARACTERS } from "@/lib/limits";
 import { normalizeLibrary, type LibraryResponse } from "@/lib/library";
 
 type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; maxPromptCharacters: number; initialError?: string; initialLibraryError?: string };
-async function api<T>(path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+async function api<T>(path: string, body?: unknown, signal?: AbortSignal, method: "POST" | "DELETE" = "POST"): Promise<T> {
   const response = await fetch(path, body === undefined ? { cache: "no-store", signal } : {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal,
+    method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal,
   });
   const value = await response.json();
   if (!response.ok) throw new Error(value.error || "Something didn't finish. Please try again.");
@@ -36,11 +36,12 @@ function GamePreview({ revision, projectId }: { revision: Revision; projectId: s
     </div>
   </div>;
 }
-function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
+function Modal({ title, children, onClose, initialFocus }: { title: string; children: React.ReactNode; onClose: () => void; initialFocus?: React.RefObject<HTMLButtonElement | null> }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => { ref.current?.showModal(); }, []);
-  return <dialog ref={ref} className="modal" onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-    <div className="modal-heading"><h2>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={20}/></button></div>{children}
+  const titleId = useId();
+  useEffect(() => { ref.current?.showModal(); initialFocus?.current?.focus(); }, [initialFocus]);
+  return <dialog ref={ref} className="modal" aria-labelledby={titleId} onCancel={e => { e.preventDefault(); onClose(); }} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="modal-heading"><h2 id={titleId}>{title}</h2><button className="icon-button" onClick={onClose} aria-label="Close dialog"><X size={20}/></button></div>{children}
   </dialog>;
 }
 
@@ -66,7 +67,7 @@ export function Studio(props: Props) {
   const [busy, setBusy] = useState("");
   const [error, setError] = useState(props.initialError || "");
   const [tab, setTab] = useState<"chat" | "play">("chat");
-  const [modal, setModal] = useState<"account" | "share" | "versions" | null>(null);
+  const [modal, setModal] = useState<"account" | "share" | "versions" | "options" | "delete" | null>(null);
   const [copied, setCopied] = useState(false);
   const signedIn = props.signedIn;
   const [displayName, setDisplayName] = useState(props.initialDisplayName);
@@ -74,6 +75,7 @@ export function Studio(props: Props) {
   const studioRef = useRef<HTMLDivElement>(null);
   const chatScroll = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const keepGameRef = useRef<HTMLButtonElement>(null);
   const current = project?.revisions.find(r => r.id === project.currentRevisionId);
   const loadSequence = useRef(0);
   const updateProject = useCallback((p: ProjectDetail) => {
@@ -202,6 +204,18 @@ export function Studio(props: Props) {
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
   }
+  async function deleteGame() {
+    if (!project || busy) return;
+    setError(""); setBusy("delete");
+    try {
+      await api("/api/projects/" + project.id, {}, undefined, "DELETE");
+      loadSequence.current++;
+      setProjects(list => list.filter(p => p.id !== project.id));
+      setProject(null); setModal(null); setChange("");
+      history.replaceState({}, "", "/");
+    } catch (e) { setError((e as Error).message); }
+    finally { setBusy(""); }
+  }
   async function logout() {
     setBusy("logout"); setError("");
     try { await api("/api/auth", { action: "logout" }); location.assign("/"); }
@@ -287,7 +301,7 @@ export function Studio(props: Props) {
       </>}<footer className="home-footer"><span>Dream it. Build it. Pocket it.</span><span className="app-version" aria-label={"Version " + props.version}>v{props.version}</span><span>Made for curious minds <span className="footer-heart">♡</span></span></footer>
     </main> : <main className="editor">
       <div className="editor-heading"><div className="editor-heading-left"><button className="icon-button back" aria-label="Back to my studio" onClick={home} disabled={!!busy}><ChevronLeft size={21}/></button><div><h1>{project.title}</h1><span>{project.publishedRevisionId === project.currentRevisionId ? "This version is published" : project.publishedRevisionId ? "New changes · ready when you are" : "Your own little world"}</span></div></div>
-        <div className="editor-actions"><button className="secondary-button" aria-label="Versions" onClick={() => { setError(""); setModal("versions"); }} disabled={!!busy}><History size={16}/><span>Versions</span></button><button className="primary-button" onClick={() => { setError(""); setModal("share"); }} disabled={!!busy}><Globe size={16}/>Publish</button></div></div>
+        <div className="editor-actions"><button className="secondary-button" aria-label="Versions" onClick={() => { setError(""); setModal("versions"); }} disabled={!!busy}><History size={16}/><span>Versions</span></button><button className="primary-button" onClick={() => { setError(""); setModal("share"); }} disabled={!!busy}><Globe size={16}/>Publish</button><button className="icon-button game-options-button" aria-label="Game options" aria-haspopup="dialog" onClick={() => { setError(""); setModal("options"); }} disabled={!!busy}><Ellipsis size={20}/></button></div></div>
       <div className="mobile-tabs" role="tablist" aria-label="Game editor" onKeyDown={e => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
         e.preventDefault();
@@ -304,6 +318,8 @@ export function Studio(props: Props) {
       </div>
     </main>}
     {busy === "open" && <div className="loading-toast" role="status"><LoaderCircle size={17} className="spin"/> Opening your little world…</div>}
+    {modal === "options" && project && <Modal title="Game options" onClose={() => setModal(null)}><p className="modal-description game-options-title">{project.title}</p><button className="secondary-button delete-game-option" onClick={() => { setError(""); setModal("delete"); }}><Trash2 size={16}/>Delete game</button></Modal>}
+    {modal === "delete" && project && <Modal title="Delete this game?" initialFocus={keepGameRef} onClose={() => { if (!busy) setModal(null); }}><p className="modal-description delete-description">Permanently delete <strong>{project.title}</strong> and all its saved versions? This cannot be undone.</p><p className="modal-description">The game will leave your studio and the public library, and its public link will stop working. Copies already downloaded may still be playable offline.</p><div className="modal-actions"><button ref={keepGameRef} className="secondary-button" disabled={!!busy} onClick={() => setModal(null)}>Keep game</button><button className="primary-button delete-game-button" disabled={!!busy} onClick={() => void deleteGame()}>{busy === "delete" ? <><LoaderCircle className="spin" size={17}/>Deleting…</> : <><Trash2 size={16}/>Delete game</>}</button></div>{error && <p className="inline-error" role="alert">{error}</p>}</Modal>}
     {modal === "account" && <Modal title="Your account" onClose={() => setModal(null)}><p className="modal-description">Your public name appears with every game you publish.</p><form className="login-form" onSubmit={saveProfile}><label>Public name<input autoComplete="nickname" value={displayName} onChange={e => { setDisplayName(e.target.value); setProfileSaved(false); }} required maxLength={80} disabled={!!busy}/></label>{error && <p className="inline-error" role="alert">{error}</p>}<button className="primary-button" disabled={!!busy}>{busy === "profile" ? <LoaderCircle className="spin" size={17}/> : <>Save public name <Check size={16}/></>}</button>{profileSaved && <p className="profile-saved" role="status">Public name saved.</p>}</form>{!props.demo && <button className="text-button account-signout" onClick={() => void logout()} disabled={!!busy}><LogOut size={16}/>Sign out</button>}</Modal>}
     {modal === "versions" && project && <Modal title="Room to experiment" onClose={() => setModal(null)}><p className="modal-description">Go back to a favorite version. Your other versions stay saved, and your published game stays as it is.</p><div className="version-list">{project.revisions.map((r,i) => <div className="version-row" key={r.id}><div><strong>{r.title}</strong><span>{r.prompt.slice(0,100)}</span><small>{new Date(r.createdAt).toLocaleString()} {r.id === project.publishedRevisionId && "· Published"}</small></div><button className="small-button" disabled={!!busy || r.id === project.currentRevisionId} onClick={() => versionAction("restore", r.id)}>{r.id === project.currentRevisionId ? "Current" : "Restore"}</button></div>)}</div>{error && <p className="inline-error" role="alert">{error}</p>}</Modal>}
     {modal === "share" && project && <Modal title="Let your little world out" onClose={() => setModal(null)}><div className={"share-art art-" + project.theme}><img src={projectIconURL(project)} width={96} height={96} alt=""/></div><p className="modal-description">Publishing adds your game to the public game library. Anyone can find, play, and add it to their home screen for offline adventures.</p>

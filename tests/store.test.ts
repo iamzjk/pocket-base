@@ -8,6 +8,46 @@ import { DemoStore, DEMO_OWNER } from "../src/lib/demo-store";
 import { classicListings } from "../src/lib/classic-games";
 import { starters } from "./fixtures/games";
 const emptyLibrary = { games: classicListings.map(game => ({ ...game, playCount: 0 })), hasMore: false, leaderboard: [] };
+test("only the owner can delete a game, including all revisions and play records without resetting attempts", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-delete-"));
+  try {
+    const own = new DemoStore(DEMO_OWNER, directory), other = new DemoStore(randomUUID(), directory);
+    const first = await own.save({ ...starters[0], prompt: "PRIVATE deletion fixture" });
+    await own.select(first.id, first.currentRevisionId, "publish");
+    const edit = await own.save({ ...starters[0], title: "Private draft", projectId: first.id,
+      baseRevisionId: first.currentRevisionId, prompt: "PRIVATE edit" });
+    const keep = await own.save({ ...starters[0], prompt: "Keep this draft" });
+    const otherGame = await other.save({ ...starters[0], prompt: "Other owner's game" });
+    await other.select(otherGame.id, otherGame.currentRevisionId, "publish");
+    await own.recordGameOpen(first.id, randomUUID());
+    await own.recordGameOpen(otherGame.id, randomUUID());
+    const attempt = await own.reserveGeneration();
+    for (const id of [first.id, keep.id]) await assert.rejects(other.deleteGame(id), { status: 404 });
+    for (const id of [randomUUID(), classicListings[0].id]) await assert.rejects(own.deleteGame(id), { status: 404 });
+    assert.equal((await own.detail(first.id))?.revisions.length, 2);
+    await own.deleteGame(first.id);
+    assert.equal(await own.detail(first.id), null);
+    assert.equal(await own.projectIcon(first.id), null);
+    assert.equal(await other.publicGame(first.id), null);
+    assert.equal((await other.publishedGames()).games.some(game => game.id === first.id), false);
+    assert.equal((await other.publishedGames()).leaderboard.some(game => game.id === first.id), false);
+    await assert.rejects(own.deleteGame(first.id), { status: 404 });
+    await assert.rejects(own.select(first.id, edit.currentRevisionId, "restore"), { status: 404 });
+    await assert.rejects(own.save({ ...starters[0], projectId: first.id,
+      baseRevisionId: edit.currentRevisionId, prompt: "Stale tab edit" }), { status: 404 });
+    await assert.rejects(own.recordGameOpen(first.id, randomUUID()), { status: 404 });
+    const state = JSON.parse(await readFile(path.join(directory, "demo.json"), "utf8"));
+    assert.equal(state.revisions.some((r: { projectId: string }) => r.projectId === first.id), false);
+    assert.equal(state.playCounts[first.id], undefined);
+    assert.equal(state.playVisitors.some((v: { gameId: string }) => v.gameId === first.id), false);
+    assert.equal(state.playCounts[otherGame.id], 1);
+    assert.equal(state.attempts[0].id, attempt);
+    await assert.rejects(own.reserveGeneration(), { status: 409 });
+    assert.ok(await other.detail(otherGame.id));
+    await own.deleteGame(keep.id);
+    assert.deepEqual(await own.list(), []);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
 test("an active local generation remains locked for six minutes, including across UTC midnight",async()=>{
   const directory=await mkdtemp(path.join(os.tmpdir(),"pocket-lease-"));
   try{

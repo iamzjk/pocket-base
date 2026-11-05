@@ -59,6 +59,7 @@ export interface Store {
   save(input: SaveInput): Promise<ProjectDetail>;
   select(id: string, revisionId: string, action: "restore" | "publish"): Promise<ProjectDetail>;
   unpublish(id: string): Promise<void>;
+  deleteGame(id: string): Promise<void>;
   reserveGeneration(parentAttemptId?: string): Promise<string>;
   finishGeneration(id: string): Promise<void>;
   publicGame(id: string): Promise<PublicGame | null>;
