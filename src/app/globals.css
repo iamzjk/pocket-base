@@ -124,6 +124,7 @@
   .editor-heading-left{flex-basis:100%}
   .editor-actions{width:100%}
   .editor-actions .secondary-button>span{display:inline}
+  .editor-actions.is-published .secondary-button>span{display:none}
   .editor-actions .primary-button{flex:1}
 }
 /* Save room for play and typing when the phone is rotated or keyboard is open. */

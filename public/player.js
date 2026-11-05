@@ -1,6 +1,6 @@
-import { startGame } from "/sandbox.js?v=6";
+import { startGame } from "/sandbox.js?v=7";
 
-const PLAYER_VERSION = "6";
+const PLAYER_VERSION = "7";
 const gameId = document.body.dataset.gameId;
 const base = "/play/" + gameId + "/";
 const stage = document.getElementById("stage");
@@ -70,7 +70,7 @@ async function prepareOffline() {
   try {
     const existing = await navigator.serviceWorker.getRegistration(base);
     registration = existing?.active && existing.scope === new URL(base, location.href).href
-      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=6", { scope: base });
+      ? existing : await navigator.serviceWorker.register("/game-worker.js?v=7", { scope: base });
     if (navigator.onLine) await registration.update().catch(() => {});
     if (registration.installing || registration.waiting || !registration.active) {
       await new Promise((resolve, reject) => {
@@ -122,6 +122,24 @@ async function checkUpdate() {
   finally { checking = false; }
 }
 document.getElementById("restart").onclick = () => { if (currentGame) render(currentGame); };
+const shareStatus = document.getElementById("share-status");
+const shareDialog = document.getElementById("share-dialog");
+const shareLink = document.getElementById("share-link");
+let shareTimer;
+document.getElementById("share").onclick = async () => {
+  const url = new URL(base, location.origin).href;
+  clearTimeout(shareTimer); shareStatus.textContent = "";
+  try {
+    await navigator.clipboard.writeText(url);
+    shareStatus.textContent = "Link copied";
+    shareTimer = setTimeout(() => { shareStatus.textContent = ""; }, 2500);
+  } catch {
+    shareLink.value = url;
+    shareDialog.showModal(); shareLink.focus(); shareLink.select();
+  }
+};
+document.getElementById("close-share").onclick = () => shareDialog.close();
+shareDialog.addEventListener("click", event => { if (event.target === shareDialog) shareDialog.close(); });
 document.getElementById("update").onclick = async () => {
   try { await talk("ACTIVATE", { revisionId: pendingRevision }); location.reload(); }
   catch { showStatus("The update isn't ready. Try again online."); }

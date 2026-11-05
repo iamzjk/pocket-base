@@ -1,5 +1,5 @@
 /* Trusted platform code. Never generate a worker from game source. */
-const PLAYER_VERSION = "6"; // Bump with changes to player.js, sandbox.js, or player.css.
+const PLAYER_VERSION = "7"; // Bump with changes to player.js, sandbox.js, or player.css.
 const base = new URL(self.registration.scope);
 const gameId = base.pathname.split("/").filter(Boolean).pop();
 const prefix = "pocket-base:" + gameId + ":";

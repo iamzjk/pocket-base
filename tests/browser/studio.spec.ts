@@ -48,10 +48,32 @@ test("phone and desktop builder: play, preserve failed edits, publish, and unpub
   const publicGame = await (await request.get("/play/" + id + "/game.json")).json();
   expect(publicGame.revisionId).toBe(before.currentRevisionId);
   expect(Object.keys(publicGame).sort()).toEqual(["description","html","iconSvg","id","revisionId","theme","title"].sort());
-  await page.locator("summary").filter({ hasText: "Take this game offline" }).click();
-  await page.getByRole("button", { name: "Unpublish game" }).click();
-  await expect(page.getByRole("button", { name: "Publish my game" })).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog" }).click();
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 1000 : 844 });
+    await expect(page.getByRole("button", { name: "Unpublish", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Publish", exact: true })).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await screenshot(page, "published-editor-" + width);
+    await page.getByRole("button", { name: "Share game", exact: true }).click();
+    await expect(page.getByLabel("Your public play link")).toHaveValue(new RegExp("/play/" + id + "/$"));
+    await page.getByRole("button", { name: "Close dialog" }).click();
+  }
+  const versionsEndpoint = "**/api/projects/" + id + "/versions";
+  await page.route(versionsEndpoint, route => route.fulfill({ status: 503, json: { error: "Fictional unpublish failure. Try again." } }));
+  await page.getByRole("button", { name: "Unpublish", exact: true }).click();
+  await expect(page.getByRole("alert").filter({ hasText: "Fictional unpublish failure" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unpublish", exact: true })).toBeEnabled();
+  expect((await request.get("/play/" + id + "/game.json")).status()).toBe(200);
+  await page.unroute(versionsEndpoint);
+  await page.getByRole("button", { name: "Unpublish", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Share game", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   expect((await request.get("/play/" + id + "/game.json")).status()).toBe(404);
+  expect((await (await request.get("/api/library?q=Phone%20memory%20fixture")).json()).games).toHaveLength(0);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Publish", exact: true })).toBeVisible();
   const csrf = await request.post("/api/generate", { data: { prompt: "Fictional cross-origin game" }, headers: { origin: "https://other.example" } });
   expect(csrf.status()).toBe(403);
 });
@@ -189,7 +211,8 @@ test("create, revise, restore, and republish through the complete API with a fic
   await page.getByRole("button", { name: "Versions" }).click();
   await page.locator(".version-row").filter({ hasText: "Make the bubbles rainbow" }).getByRole("button", { name: "Restore" }).click();
   expect((await (await request.get("/play/" + id + "/game.json")).json()).revisionId).toBe(firstPublic.revisionId);
-  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Unpublish", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Share game", exact: true }).click();
   await page.getByRole("button", { name: "Publish these changes" }).click();
   await expect(page.getByRole("button", { name: "This version is live" })).toBeVisible();
   expect((await (await request.get("/play/" + id + "/game.json")).json()).html).toContain("Pop a rainbow bubble");
@@ -344,6 +367,63 @@ test("player installation help fits a rotated phone and refreshes older offline 
   await expect(page.frameLocator("iframe").getByRole("heading", { name: "Star Catcher" })).toBeVisible();
   await expect(page.getByText("Playing offline", { exact: true })).toBeVisible();
   await context.setOffline(false);
+});
+
+test("public players copy clean links across layouts and offer a manual fallback offline", async ({ page, context }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      async writeText(value: string) {
+        if ((window as any).blockClipboard) throw new DOMException("Fictional clipboard denial", "NotAllowedError");
+        (window as any).copiedGameLink = value;
+      },
+    } });
+  });
+  const url = "http://127.0.0.1:3217/play/" + starterIds[0] + "/";
+  await page.goto(url + "?from=fictional#round-2");
+  await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+  const copy = page.getByRole("button", { name: "Copy game link", exact: true });
+  for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1440, height: 1000 }]) {
+    await page.setViewportSize(viewport);
+    const box = await copy.boundingBox();
+    expect(box!.width).toBeGreaterThanOrEqual(44);
+    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(await page.locator(".player-bar button").evaluateAll(elements => elements.every(element => {
+      const r = element.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.bottom <= innerHeight;
+    }))).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await copy.click();
+    await expect(page.getByRole("status").filter({ hasText: "Link copied" })).toBeVisible();
+    expect(await page.evaluate(() => (window as any).copiedGameLink)).toBe(url);
+    await screenshot(page, "player-share-" + viewport.width);
+  }
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.evaluate(() => { (window as any).blockClipboard = true; });
+  await copy.click();
+  const dialog = page.getByRole("dialog", { name: "Share this game", exact: true });
+  const link = dialog.getByRole("textbox", { name: "Public game link", exact: true });
+  await expect(link).toHaveValue(url);
+  await expect(link).toBeFocused();
+  expect(await link.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, url.length]);
+  await screenshot(page, "player-share-fallback");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
+  await expect(copy).toBeFocused();
+  await page.evaluate(() => { Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined }); });
+  await copy.click();
+  await expect(link).toHaveValue(url);
+  await dialog.getByRole("button", { name: "Close sharing", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+  await page.goto(url);
+  await expect(page.getByText("Ready offline", { exact: true })).toBeVisible();
+  await page.addInitScript(() => { Object.defineProperty(navigator, "standalone", { value: true }); });
+  try {
+    await context.setOffline(true); await page.reload();
+    await expect(page.getByText("Playing offline", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add to phone" })).toBeHidden();
+    await copy.click();
+    expect(await page.evaluate(() => (window as any).copiedGameLink)).toBe(url);
+  } finally { await context.setOffline(false); }
 });
 
 test("startup errors stay visible after readiness and offline download complete", async ({ page }) => {

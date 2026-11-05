@@ -29,3 +29,14 @@
 .game-status{position:absolute;inset:0;z-index:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;overflow:auto;background:#faf8f2;color:#7b638c;text-align:center;font-size:14px;line-height:1.7}
 .game-status p{max-width:300px;margin:0}
 .game-status .retry-button{min-width:100px;padding:10px 18px;border-radius:12px;background:#8054db;color:#fff;font-weight:700}
+
+#share{width:44px;min-height:44px;display:grid;place-items:center;border-radius:14px;background:#eee8f6;color:#7650c6}
+.share-status{position:fixed;bottom:calc(64px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);padding:10px 18px;border-radius:12px;background:#30213f;color:#fff;font-size:13px;box-shadow:0 4px 20px #24143630;z-index:20;pointer-events:none}
+.share-status:empty{display:none}
+.share-dialog{position:fixed;width:calc(100% - 24px);max-width:360px;max-height:calc(100dvh - 24px);overflow:auto;border:0;border-radius:22px;padding:24px;background:#faf8f2;color:#30213f;box-shadow:0 24px 80px #24143640}
+.share-dialog::backdrop{background:#281d466e;backdrop-filter:blur(6px)}
+.share-dialog h2{font-size:24px;margin:0 32px 12px 0;letter-spacing:-.5px}
+.share-dialog p{font-size:14px;line-height:1.7;color:#71667e}
+.share-dialog label{display:block;font-size:12px;font-weight:700;margin-bottom:8px;color:#71667e}
+.share-dialog input{font:inherit;font-size:16px;width:100%;min-width:0;padding:12px;border:1px solid #dfd3e6;border-radius:10px;background:#fffdf9;color:#30213f}
+.share-dialog input:focus-visible{outline:3px solid #8256e8;outline-offset:3px}

@@ -1,5 +1,5 @@
 import type { PublicGame } from "./types";
-export const PLAYER_VERSION = "6";
+export const PLAYER_VERSION = "7";
 export function escapeHTML(value: string) {
   return value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
@@ -32,10 +32,15 @@ export function playerDocument(game: PublicGame) {
     '</head><body data-game-id="' + game.id + '">',
     '<header class="player-bar"><span class="player-logo" aria-hidden="true">p.</span><strong id="game-name">' + title + '</strong>',
     '<button id="restart" title="Restart game" aria-label="Restart game">↻</button>',
+    '<button id="share" title="Copy game link" aria-label="Copy game link"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 10.5 6.8-4m-6.8 7 6.8 4"/></svg></button>',
     '<button id="install" class="install-button">Add to phone</button></header>',
     '<main id="stage"><p class="loading" id="loading" role="status">Opening a little world…</p></main>',
     '<footer class="player-footer"><span id="offline-state" role="status">Getting ready…</span>',
     '<button id="update" hidden>Update & restart</button><span class="made-with">Made in Pocket Base</span></footer>',
+    '<span id="share-status" class="share-status" role="status" aria-live="polite" aria-atomic="true"></span>',
+    '<dialog id="share-dialog" class="share-dialog" aria-labelledby="share-title"><button id="close-share" class="close-help" aria-label="Close sharing">×</button>',
+    '<h2 id="share-title">Share this game</h2><p>Select and copy this link to share your game.</p>',
+    '<label for="share-link">Public game link</label><input id="share-link" type="url" readonly></dialog>',
     '<section id="install-help" class="help" hidden role="dialog" aria-modal="true" aria-labelledby="help-title">',
     '<div class="help-card"><button id="close-help" class="close-help" aria-label="Close installation help">×</button>',
     '<span class="help-icon">✦</span><h2 id="help-title">A little world.<br>One tap away.</h2><p id="help-text"></p>',

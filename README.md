@@ -143,6 +143,10 @@ Counting uses an anonymous random per-game browser ID in local storage and priva
 
 Public game URLs are `/play/<game-id>/`. Republish keeps the URL and manifest identity stable. Draft edits do not change a published game until that revision is published.
 
+In the editor, **Publish** becomes **Unpublish** as soon as the game is public. Unpublish takes it offline directly. The **Share game** button opens the public link and lets you publish newer saved changes.
+
+Published game players have a **Copy game link** button beside Restart. It copies the stable public URL and shows **Link copied**; if clipboard access is unavailable, the link opens ready to select and copy manually. Query strings and fragments are omitted from shared links.
+
 New games include a model-designed SVG logo in the same generation response. The server accepts a restricted vector-only SVG subset (up to 30KB), rejects external resources and executable markup, and renders it into PNG install icons. Studio cards and the publishing dialog show the saved logo through an owner-only PNG endpoint, including for unpublished games. Public library and install icons use the published revision. Invalid or missing logos fall back to a simple generated mark. Game edits preserve the stored logo in application and database code, even if the model returns a replacement. A one-time logo update covers the five originals and the four published legacy studio games; unpublished games retain their existing icon style. The originals' artwork is maintained in `src/content/classic-games.json` and migration `012_classic_game_logos.sql`; account-owned artwork remains only in the database.
 
 Pocket Base itself also has a root manifest, favicon, Apple touch icon, and maskable home-screen icons. Saving `/` or `/library` installs the Pocket Base app and opens My studio. The studio remains an online app.
@@ -154,7 +158,7 @@ Each game has its own manifest, 192px/512px install icons, Apple touch icon, sta
 - **Offline:** wait for **Ready offline**. The complete game and required player files are cached. PWA support requires production HTTPS or localhost; an ordinary HTTP LAN URL is insufficient.
 - **Updates:** check on launch and when returning online or to the app. Download the complete release before offering **Update & restart**. Active gameplay is not replaced mid-session. Incomplete downloads preserve the previous release.
 - **Unpublish:** stops new online access and downloads. Previously downloaded copies can remain playable offline.
-- **Delete:** in My studio, open your game → **Game options** (the three dots beside Publish) → **Delete game**. Confirm the named game to permanently remove it and all saved versions, public listings, online play, and play counts. Only its owner can delete it. Previously downloaded copies may remain playable offline. Generation attempts still count toward the daily allowance.
+- **Delete:** in My studio, open your game → **Game options** (the three dots beside Publish or Unpublish) → **Delete game**. Confirm the named game to permanently remove it and all saved versions, public listings, online play, and play counts. Only its owner can delete it. Previously downloaded copies may remain playable offline. Generation attempts still count toward the daily allowance.
 
 Scores and supported progress are device-local and isolated by game. There is no cross-device sync. Browser and installed-app storage can be separate, particularly on iOS. Users can clear downloaded data.
 
@@ -188,6 +192,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.3.2**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
+This release is **1.3.4**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.
