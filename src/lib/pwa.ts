@@ -1,5 +1,5 @@
 import type { PublicGame } from "./types";
-export const PLAYER_VERSION = "8";
+export const PLAYER_VERSION = "9";
 export function escapeHTML(value: string) {
   return value.replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 }
@@ -36,7 +36,7 @@ export function playerDocument(game: PublicGame) {
     '<button id="install" class="install-button">Add to phone</button></header>',
     '<main id="stage"><p class="loading" id="loading" role="status">Opening a little world…</p></main>',
     '<footer class="player-footer"><span id="offline-state" role="status">Getting ready…</span>',
-    '<button id="update" hidden>Update & restart</button><span class="made-with">Made in Pocket Base</span></footer>',
+    '<button id="update" hidden>Update & restart</button><a class="made-with" href="/" title="Back to Pocket Base">Made in Pocket Base</a></footer>',
     '<span id="share-status" class="share-status" role="status" aria-live="polite" aria-atomic="true"></span>',
     '<dialog id="share-dialog" class="share-dialog" aria-labelledby="share-title"><button id="close-share" class="close-help" aria-label="Close sharing">×</button>',
     '<h2 id="share-title">Share this game</h2><p>Select and copy this link to share your game.</p>',

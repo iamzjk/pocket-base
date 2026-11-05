@@ -1,8 +1,10 @@
-// The existing PocketMark, fitted inside the maskable safe circle.
+// Use a tight, transparent PocketMark for tabs and maskable-safe padding for home screens.
 import sharp from "sharp";
 import { mkdir, writeFile } from "node:fs/promises";
 const root = new URL("../",import.meta.url);
-const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#faf8f2"/><g transform="translate(127 113) scale(6.8)"><path d="M5 7h28v16c0 8-6 13-14 16C11 36 5 31 5 23V7Z" fill="#8155d9"/><path d="M12 15h14M12 21h8" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/><path d="m30 1 1.8 4.2L36 7l-4.2 1.8L30 13l-1.8-4.2L24 7l4.2-1.8L30 1Z" fill="#d4ee8b"/></g></svg>';
+const mark = '<path d="M5 7h28v16c0 8-6 13-14 16C11 36 5 31 5 23V7Z" fill="#8155d9"/><path d="M12 15h14M12 21h8" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"/><path d="m30 1 1.8 4.2L36 7l-4.2 1.8L30 13l-1.8-4.2L24 7l4.2-1.8L30 1Z" fill="#d4ee8b"/>';
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#faf8f2"/><g transform="translate(127 113) scale(6.8)">${mark}</g></svg>`;
+const faviconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-0.5 -1 42 42">${mark}</svg>`;
 await mkdir(new URL("public/icons/",root),{recursive:true});
 for (const size of [192,512]) {
   const png = await sharp(Buffer.from(svg)).resize(size,size).png().toBuffer();
@@ -10,9 +12,9 @@ for (const size of [192,512]) {
   await writeFile(new URL(`public/icons/pocket-base-maskable-${size}.png`,root),png);
 }
 await writeFile(new URL("src/app/apple-icon.png",root),await sharp(Buffer.from(svg)).resize(180,180).png().toBuffer());
-await writeFile(new URL("src/app/icon.svg",root),svg);
+await writeFile(new URL("src/app/icon.svg",root),faviconSvg);
 const sizes=[16,32,48];
-const images=await Promise.all(sizes.map(size=>sharp(Buffer.from(svg)).resize(size,size).png().toBuffer()));
+const images=await Promise.all(sizes.map(size=>sharp(Buffer.from(faviconSvg)).resize(size,size).png().toBuffer()));
 const header=Buffer.alloc(6+16*sizes.length); header.writeUInt16LE(1,2); header.writeUInt16LE(sizes.length,4);
 let offset=header.length;
 for(let i=0;i<sizes.length;i++) {
