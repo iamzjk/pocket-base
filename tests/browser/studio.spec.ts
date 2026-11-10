@@ -35,7 +35,7 @@ test("phone and desktop builder: play, preserve failed edits, publish, and unpub
   const before = await (await request.get("/api/projects/" + id)).json();
   await page.getByRole("tab", { name: "Make changes" }).click();
   await page.getByLabel("Describe a change to your game").fill("Try the busy model");
-  await page.getByRole("button", { name: "Make this change" }).click();
+  await page.getByRole("button", { name: "Build now" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "game maker" })).toContainText("busy or has reached its allowance");
   const after = await (await request.get("/api/projects/" + id)).json();
   expect(after.currentRevisionId).toBe(before.currentRevisionId);
@@ -185,17 +185,18 @@ test("create, revise, restore, and republish through the complete API with a fic
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await page.getByLabel("Describe your game idea").fill("A little bubble game");
-  await page.getByRole("button", { name: "Make it", exact: true }).click();
+  await page.getByRole("button", { name: "Build now", exact: true }).click();
   await expect(page).toHaveURL(/\?game=/);
   const id = new URL(page.url()).searchParams.get("game")!;
   const originalLogo = (await (await request.get("/api/projects/" + id)).json()).revisions[0].iconSvg;
   expect(originalLogo).toContain("#9ed9c7");
   await expect(page.frameLocator("iframe").getByRole("button", { name: "Pop a moon bubble" })).toBeVisible();
+  await expect(page.locator(".game-status:visible")).toHaveCount(0);
   await page.frameLocator("iframe").getByRole("button", { name: "Pop a moon bubble" }).click();
   await expect(page.frameLocator("iframe").getByText("Popped 1")).toBeVisible();
   await page.getByRole("tab", { name: "Make changes" }).click();
   await page.getByLabel("Describe a change to your game").fill("Make the bubbles rainbow");
-  await page.getByRole("button", { name: "Make this change" }).click();
+  await page.getByRole("button", { name: "Build now" }).click();
   await expect(page.frameLocator("iframe").getByRole("button", { name: "Pop a rainbow bubble" })).toBeVisible();
   const revisedGame = await (await request.get("/api/projects/" + id)).json();
   expect(revisedGame.revisions.find((r: { id: string }) => r.id === revisedGame.currentRevisionId).iconSvg).toBe(originalLogo);
@@ -309,7 +310,7 @@ test("studio controls remain reachable across phone sizes, rotation, and keyboar
       visualViewport!.dispatchEvent(new Event("resize"));
     });
     await expect.poll(async () => (await page.locator(".studio").boundingBox())?.height).toBe(360);
-    const send = await page.getByRole("button", { name: "Make this change" }).boundingBox();
+    const send = await page.getByRole("button", { name: "Build now" }).boundingBox();
     expect(send!.y + send!.height).toBeLessThanOrEqual(360);
     await page.getByRole("button", { name: "Versions", exact: true }).tap();
     const dialog = await page.getByRole("dialog").boundingBox();
@@ -641,12 +642,12 @@ test("timeouts while reading successful provider responses keep new and edited g
   const game=await store().save({...starters[0],prompt:"Fictional safe original"});
   await page.goto("/?game="+game.id);
   await page.locator("#change").fill("timeout model");
-  await page.getByRole("button",{name:"Make this change"}).click();
+  await page.getByRole("button",{name:"Build now"}).click();
   await expect(page.locator(".error-banner")).toContainText("ran out of time");
   const unchanged=await store().detail(game.id);
   expect(unchanged?.currentRevisionId).toBe(game.currentRevisionId);
   expect(unchanged?.revisions).toHaveLength(1);
-  await expect(page.getByRole("button",{name:"Make this change"})).toBeEnabled();
+  await expect(page.getByRole("button",{name:"Build now"})).toBeEnabled();
 });
 
 test("new games reserve two model calls, edits reserve one, and failed phases release their leases",async({request})=>{

@@ -1,6 +1,8 @@
 import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { beginRequest, checkRequest, finishDiscussion, resetConversation } from "./conversations";
+import type { Conversation, ConversationRequest, ConversationRequestInput, Discussion } from "./types";
 import { requireId, StudioError } from "./errors";
 import { classicGames, classicListings } from "./classic-games";
 import { publicName } from "./profile";
@@ -11,6 +13,8 @@ import { LIBRARY_PAGE_SIZE, type Project, type Revision, type SaveInput, type St
 
 export const DEMO_OWNER = "00000000-0000-4000-8000-000000000001";
 interface State {
+  conversations?: (Conversation & { ownerId: string })[];
+  conversationRequests?: (ConversationRequest & { ownerId: string })[];
   projects: Project[]; revisions: Revision[]; profiles?: Record<string, string>;
   attempts: { id: string; ownerId: string; at: string; finished: boolean }[];
   playCounts?: Record<string, number>;
@@ -22,6 +26,60 @@ export function initialState(): State {
 }
 export class DemoStore implements Store {
   constructor(private ownerId = DEMO_OWNER, private directory = process.env.POCKET_BASE_DATA_DIR || path.join(process.cwd(), ".local")) {}
+  private ownedConversation(s: State, id: string) {
+    const c = s.conversations?.find(c => c.id === id && c.ownerId === this.ownerId);
+    if (!c) throw new StudioError("That conversation couldn't be found.", 404);
+    return c;
+  }
+  async conversations() { return this.transaction(s => (s.conversations || []).filter(c => c.ownerId === this.ownerId)
+    .map(({ id, projectId, title, updatedAt }) => ({ id, projectId, title, updatedAt })).sort((a,b) => b.updatedAt.localeCompare(a.updatedAt))); }
+  async createConversation(projectId?: string) {
+    return this.transaction(s => {
+      const p = projectId ? this.owned(s, projectId) : null;
+      const list = s.conversations ||= [];
+      const existing = p && list.find(c => c.projectId === p.id && c.ownerId === this.ownerId);
+      if (existing) return existing;
+      const c: Conversation & { ownerId: string } = { id: randomUUID(), ownerId: this.ownerId, projectId: p?.id || null, title: p?.title || "New idea",
+        version: 0, contextVersion: 0, summary: "", proposal: null, messages: [], updatedAt: new Date().toISOString() };
+      if (p) for (const r of s.revisions.filter(r => r.projectId === p.id).sort((a,b) => a.createdAt.localeCompare(b.createdAt))) {
+        c.messages.push({id:randomUUID(),kind:"user",text:r.prompt,version:0,createdAt:r.createdAt},
+          {id:randomUUID(),kind:"saved",text:"Saved version",version:0,createdAt:r.createdAt,revisionId:r.id});
+      }
+      list.push(c); return c;
+    }, true);
+  }
+  async conversation(id: string) { return this.transaction(s => s.conversations?.find(c => c.id === id && c.ownerId === this.ownerId) || null); }
+  async deleteConversation(id: string) { await this.transaction(s => {
+    const c = this.ownedConversation(s, id);
+    if (c.projectId) throw new StudioError("Delete the game from Game options instead.", 409);
+    s.conversations = s.conversations!.filter(x => x.id !== c.id);
+    s.conversationRequests = s.conversationRequests?.filter(r => r.conversationId !== c.id);
+  }, true); }
+  async beginConversationRequest(id: string, input: ConversationRequestInput) {
+    return this.transaction(s => {
+      const c = this.ownedConversation(s, id);
+      const base = c.projectId ? this.owned(s, c.projectId).currentRevisionId : null;
+      const requests = s.conversationRequests ||= [];
+      const existing = requests.find(r => r.id === input.requestId);
+      if (existing && existing.ownerId !== this.ownerId) throw new StudioError("This request ID has already been used.", 409);
+      if (!existing && requests.some(r => r.conversationId === c.id && r.version === c.version && r.status === "pending" && Date.now() - Date.parse(r.startedAt) < 360000))
+        throw new StudioError("This request is already in progress.", 409);
+      const r = beginRequest(c, input, base, existing);
+      if (!existing) requests.push({ ...r, ownerId: this.ownerId });
+      return r;
+    }, true);
+  }
+  async completeDiscussion(id: string, result: Discussion, startedAt?: string) { return this.transaction(s => {
+    const r = s.conversationRequests?.find(r => r.id === id && r.ownerId === this.ownerId);
+    if (!r || r.kind !== "discussion") throw new StudioError("That request couldn't be found.", 404);
+    if (startedAt && r.startedAt !== startedAt) throw new StudioError("This request expired. Please try again.", 409);
+    const c = this.ownedConversation(s, r.conversationId);
+    return finishDiscussion(c, r, result, c.projectId ? this.owned(s, c.projectId).currentRevisionId : null);
+  }, true); }
+  async failConversationRequest(id: string, startedAt?: string) { await this.transaction(s => {
+    const r = s.conversationRequests?.find(r => r.id === id && r.ownerId === this.ownerId);
+    if (r?.status === "pending" && (!startedAt || r.startedAt === startedAt)) r.status = "failed";
+  }, true); }
   async profile() { return this.transaction(s => ({ displayName: s.profiles?.[this.ownerId] || "Local creator" })); }
   async saveProfile(displayName: string) {
     const name = publicName(displayName);
@@ -69,6 +127,12 @@ export class DemoStore implements Store {
     validateSaveLimits(input);
     return this.transaction(s => {
       const now = new Date().toISOString();
+      const operation = input.conversationRequestId ? s.conversationRequests?.find(r => r.id === input.conversationRequestId && r.ownerId === this.ownerId) : undefined;
+      const conversation = operation ? this.ownedConversation(s, operation.conversationId) : undefined;
+      if (input.conversationRequestId) {
+        if (!operation || !conversation || operation.kind === "discussion" || operation.projectId !== (input.projectId || null) || operation.prompt !== input.prompt || (input.conversationRequestStartedAt && operation.startedAt !== input.conversationRequestStartedAt)) throw new StudioError("That request couldn't be found.", 409);
+        checkRequest(conversation, operation, input.baseRevisionId || null);
+      }
       const p = input.projectId ? this.owned(s, input.projectId) : {
         id: randomUUID(), ownerId: this.ownerId, title: input.title, description: input.description, theme: input.theme,
         currentRevisionId: "", publishedRevisionId: null, createdAt: now, updatedAt: now,
@@ -77,9 +141,12 @@ export class DemoStore implements Store {
         throw new StudioError("This game changed in another tab. Refresh before trying again.", 409);
       if (!input.projectId) s.projects.push(p);
       const previous = s.revisions.find(r => r.id === p.currentRevisionId && r.projectId === p.id);
-      const r: Revision = { ...input, iconSvg: previous?.iconSvg || input.iconSvg || null, id: randomUUID(), projectId: p.id, createdAt: now };
+      const r: Revision = { title: input.title, description: input.description, theme: input.theme, html: input.html, prompt: input.prompt, notes: input.notes ?? previous?.notes ?? null, iconSvg: previous?.iconSvg || input.iconSvg || null, id: randomUUID(), projectId: p.id, createdAt: now };
       s.revisions.push(r);
       Object.assign(p, { title: r.title, description: r.description, theme: r.theme, currentRevisionId: r.id, updatedAt: now });
+      const c = conversation || s.conversations?.find(c => c.projectId === p.id);
+      if (c) { c.projectId = p.id; resetConversation(c, "saved", r.id); }
+      if (operation) { operation.status = "complete"; operation.projectId = p.id; }
       return this.view(s, p);
     }, true);
   }
@@ -92,7 +159,11 @@ export class DemoStore implements Store {
         if (p.publishedRevisionId !== r.id) p.publishedAt = new Date().toISOString();
         p.publishedRevisionId = r.id;
       }
-      else Object.assign(p, { currentRevisionId: r.id, title: r.title, description: r.description, theme: r.theme });
+      else {
+        Object.assign(p, { currentRevisionId: r.id, title: r.title, description: r.description, theme: r.theme });
+        const c = s.conversations?.find(c => c.projectId === p.id);
+        if (c) resetConversation(c, "restored", r.id);
+      }
       p.updatedAt = new Date().toISOString();
       return this.view(s, p);
     }, true);
@@ -103,6 +174,9 @@ export class DemoStore implements Store {
       const p = this.owned(s, id);
       s.projects = s.projects.filter(project => project.id !== p.id);
       s.revisions = s.revisions.filter(revision => revision.projectId !== p.id);
+      const ids = s.conversations?.filter(c => c.projectId === p.id).map(c => c.id) || [];
+      s.conversations = s.conversations?.filter(c => !ids.includes(c.id));
+      s.conversationRequests = s.conversationRequests?.filter(r => !ids.includes(r.conversationId));
       if (s.playCounts) delete s.playCounts[p.id];
       if (s.playVisitors) s.playVisitors = s.playVisitors.filter(visit => visit.gameId !== p.id);
     }, true);

@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { ArrowUp, ArrowUpRight, ArrowRight, Plus, Play, ChevronLeft, History, Globe, GlobeOff, Share2, Copy, Check, Smartphone, LoaderCircle, Sparkles, X, LogOut, RotateCcw, Search, Ellipsis, Trash2 } from "lucide-react";
 import { PocketMark, GameArtwork } from "./artwork";
-import type { Project, ProjectDetail, Revision, CreatorProfile } from "@/lib/types";
+import type { Project, ProjectDetail, Revision, CreatorProfile, Conversation, ConversationListItem } from "@/lib/types";
 import { startGame } from "../../public/sandbox.js";
 import { MAX_LIBRARY_QUERY_CHARACTERS } from "@/lib/limits";
 import { normalizeLibrary, type LibraryResponse } from "@/lib/library";
 
-type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; maxPromptCharacters: number; initialError?: string; initialLibraryError?: string };
+type Props = { initialDisplayName: string; version: string; view: "studio" | "library"; initialIdeas?: ConversationListItem[]; initialProjects: Project[]; initialLibrary: LibraryResponse; signedIn: boolean; demo: boolean; configured: boolean; aiConnected: boolean; maxPromptCharacters: number; initialError?: string; initialLibraryError?: string };
 async function api<T>(path: string, body?: unknown, signal?: AbortSignal, method: "POST" | "DELETE" = "POST"): Promise<T> {
   const response = await fetch(path, body === undefined ? { cache: "no-store", signal } : {
     method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal,
@@ -46,6 +46,9 @@ function Modal({ title, children, onClose, initialFocus }: { title: string; chil
 }
 
 export function Studio(props: Props) {
+  const [conversation, setConversation] = useState<Conversation | null>(null);
+  const [ideas, setIdeas] = useState(props.initialIdeas || []);
+  const [retry, setRetry] = useState<{ id: string; body: Record<string, unknown>; build: boolean } | null>(null);
   const [projects, setProjects] = useState(props.initialProjects);
   const [libraryResponse, setLibrary] = useState(props.initialLibrary);
   const library = normalizeLibrary(libraryResponse);
@@ -125,24 +128,41 @@ export function Studio(props: Props) {
     try {
       const p = await api<ProjectDetail>("/api/projects/" + id);
       if (sequence !== loadSequence.current) return;
+      const c = await api<Conversation>("/api/conversations", { projectId: p.id });
+      if (sequence !== loadSequence.current) return;
+      setConversation(c); setRetry(null);
       updateProject(p); setChange(""); setTab("play");
       if (push) history.pushState({}, "", "/?game=" + p.id);
     } catch (e) { if (sequence === loadSequence.current) setError((e as Error).message); }
     finally { if (sequence === loadSequence.current) setBusy(""); }
   }, [updateProject]);
+  const openIdea = useCallback(async (id: string, push = true) => {
+    const sequence = ++loadSequence.current;
+    setBusy("open"); setError("");
+    try {
+      const c = await api<Conversation>("/api/conversations/" + id);
+      if (sequence !== loadSequence.current) return;
+      if (c.projectId) { await openProject(c.projectId, push); return; }
+      setProject(null); setConversation(c); setRetry(null); setChange(""); setTab("chat");
+      if (push) history.pushState({}, "", "/?idea=" + c.id);
+    } catch (e) { if (sequence === loadSequence.current) setError((e as Error).message); }
+    finally { if (sequence === loadSequence.current) setBusy(""); }
+  }, [openProject]);
   useEffect(() => {
     const navigate = (event?: PopStateEvent) => {
       const id = new URL(location.href).searchParams.get("game");
-      if (id && props.signedIn && props.view === "studio") void openProject(id, false);
-      else { loadSequence.current++; setProject(null); setBusy(""); if (event) void loadLibrary(); }
+      const idea = new URL(location.href).searchParams.get("idea");
+      if (idea && props.signedIn && props.view === "studio") void openIdea(idea, false);
+      else if (id && props.signedIn && props.view === "studio") void openProject(id, false);
+      else { loadSequence.current++; setProject(null); setConversation(null); setRetry(null); setBusy(""); if (event) void loadLibrary(); }
     };
     navigate(); window.addEventListener("popstate", navigate);
     return () => window.removeEventListener("popstate", navigate);
-  }, [openProject, props.signedIn, props.view, loadLibrary]);
+  }, [openProject, openIdea, props.signedIn, props.view, loadLibrary]);
   useEffect(() => {
     const scroll = chatScroll.current;
     scroll?.scrollTo({ top: scroll.scrollHeight, behavior: "smooth" });
-  }, [project, busy, tab]);
+  }, [project, conversation, busy, tab]);
   useEffect(() => {
     if (project?.id) window.scrollTo(0, 0);
   }, [project?.id]);
@@ -161,7 +181,9 @@ export function Studio(props: Props) {
   function home() {
     if (busy) return;
     if (props.view === "library") { location.assign("/"); return; }
-    setProject(null); setError(""); setChange(""); history.pushState({}, "", "/");
+    setProject(null); setConversation(null); setRetry(null); setError(""); setChange("");
+    void api<ConversationListItem[]>("/api/conversations").then(setIdeas).catch(e => setError(e.message));
+    history.pushState({}, "", "/");
   }
   function needLogin() {
     if (signedIn) return false;
@@ -169,19 +191,49 @@ export function Studio(props: Props) {
     else location.assign("/account");
     return true;
   }
-  async function generate(event: React.FormEvent) {
+  async function performAction(action: { id: string; body: Record<string, unknown>; build: boolean }) {
+    setError(""); setBusy(action.build ? "generate" : "discuss"); setRetry(null);
+    try {
+      if (action.build) {
+        const p = await api<ProjectDetail>("/api/generate", { ...action.body, conversationId: action.id });
+        updateProject(p); setTab("play"); history.replaceState({}, "", "/?game=" + p.id);
+        setConversation(await api<Conversation>("/api/conversations/" + action.id));
+      } else {
+        setConversation(await api<Conversation>("/api/conversations/" + action.id + "/messages", action.body));
+        setTab("chat");
+      }
+      setChange(""); setPrompt("");
+    } catch (e) {
+      setError((e as Error).message); setRetry(action);
+      try { setConversation(await api<Conversation>("/api/conversations/" + action.id)); } catch {}
+    } finally { setBusy(""); }
+  }
+  async function generate(event: React.FormEvent, direct = false) {
     event.preventDefault();
     if (needLogin() || busy) return;
-    const text = project ? change.trim() : prompt.trim();
+    const text = project || conversation ? change.trim() : prompt.trim();
     if (!text) return;
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    setError(""); setBusy("generate");
+    setBusy("open"); setError("");
     try {
-      const p = await api<ProjectDetail>("/api/generate", { prompt: text,
-        ...(project ? { projectId: project.id, baseRevisionId: project.currentRevisionId } : {}) });
-      updateProject(p); setChange(""); setPrompt(""); setTab("play");
-      if (!project) history.pushState({}, "", "/?game=" + p.id);
-    } catch (e) { setError((e as Error).message); }
+      const c = conversation || await api<Conversation>("/api/conversations", project ? { projectId: project.id } : {});
+      setConversation(c);
+      if (!project && !conversation) { setChange(text); history.pushState({}, "", "/?idea=" + c.id); }
+      await performAction({ id: c.id, build: direct, body: { requestId: crypto.randomUUID(), version: c.version,
+        prompt: text, ...(project ? { baseRevisionId: project.currentRevisionId } : {}) } });
+    } catch (e) { setError((e as Error).message); setBusy(""); }
+  }
+  async function approveProposal() {
+    if (!conversation?.proposal || busy) return;
+    await performAction({ id: conversation.id, build: true, body: { requestId: conversation.proposal.id,
+      proposalId: conversation.proposal.id, version: conversation.version,
+      ...(project ? { baseRevisionId: project.currentRevisionId } : {}) } });
+  }
+  async function discardIdea(id: string) {
+    if (busy) return;
+    setBusy("discard"); setError("");
+    try { await api("/api/conversations/" + id, {}, undefined, "DELETE"); setIdeas(list => list.filter(c => c.id !== id)); }
+    catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
   }
   async function versionAction(action: "publish" | "restore" | "unpublish", revisionId?: string) {
@@ -191,7 +243,10 @@ export function Studio(props: Props) {
       const result = await api<ProjectDetail | { ok: true }>("/api/projects/" + project.id + "/versions", { action, revisionId });
       if ("id" in result) updateProject(result);
       else updateProject({ ...project, publishedRevisionId: null });
-      if (action === "restore") { setModal(null); setTab("play"); }
+      if (action === "restore") {
+        setModal(null); setTab("play"); setRetry(null);
+        if (conversation) setConversation(await api<Conversation>("/api/conversations/" + conversation.id));
+      }
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
   }
@@ -211,7 +266,7 @@ export function Studio(props: Props) {
       await api("/api/projects/" + project.id, {}, undefined, "DELETE");
       loadSequence.current++;
       setProjects(list => list.filter(p => p.id !== project.id));
-      setProject(null); setModal(null); setChange("");
+      setProject(null); setConversation(null); setRetry(null); setModal(null); setChange("");
       history.replaceState({}, "", "/");
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(""); }
@@ -222,7 +277,7 @@ export function Studio(props: Props) {
     catch (e) { setError((e as Error).message); setBusy(""); }
   }
   const playURL = project && typeof window !== "undefined" ? location.origin + "/play/" + project.id + "/" : "";
-  return <div ref={studioRef} className={"studio " + (project ? "is-editing" : "")}>
+  return <div ref={studioRef} className={"studio " + (project || conversation ? "is-editing" : "")}>
     <header className="topbar">
       <button className="brand" onClick={home} disabled={!!busy} aria-label="Pocket Base home"><PocketMark/><span>pocket<span className="brand-light">base</span></span></button>
       <div className="header-right">
@@ -233,17 +288,17 @@ export function Studio(props: Props) {
       </div>
     </header>
     {error && <div className="error-banner" role="alert"><span>{error}</span><button className="icon-button" aria-label="Dismiss message" onClick={() => setError("")}><X size={17}/></button></div>}
-    {!project ? <main className={"home-page " + (props.view === "library" ? "library-page" : "")}>
+    {!project && !conversation ? <main className={"home-page " + (props.view === "library" ? "library-page" : "")}>
       {props.view === "studio" && <section className="hero">
         <div className="hero-content">
           <div className="eyebrow"><span className="little-star">✦</span> A LITTLE IDEA GOES A LONG WAY</div>
           <h1>Imagine it.<br/><span>Make it yours.</span></h1>
           <p className="hero-description">A game, a doodle, a tiny adventure.<br className="desktop-break"/> What will you bring to life today?</p>
-          <form className="idea-box" onSubmit={generate}>
+          <form className="idea-box" onSubmit={e => void generate(e)}>
             <label className="sr-only" htmlFor="idea">Describe your game idea</label>
             <textarea ref={promptRef} id="idea" placeholder="A game where I catch stars in outer space…" value={prompt} maxLength={props.maxPromptCharacters} onChange={e => setPrompt(e.target.value)} disabled={!!busy}/>
-            <div className="idea-bottom"><span><Sparkles size={14}/>{busy === "generate" ? "Making a little magic…" : "Your imagination starts here"}</span>
-              <button className="primary-button" type="submit" disabled={!prompt.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={17}/> : <>Make it <ArrowUpRight size={17}/></>}</button></div>
+            <div className="idea-bottom"><span><Sparkles size={14}/>{busy === "generate" ? "Making a little magic…" : "Let’s shape your idea"}</span>
+              <button className="primary-button" type="submit" disabled={!prompt.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={17}/> : <>Send <ArrowUpRight size={17}/></>}</button><button type="button" className="secondary-button" disabled={!prompt.trim() || !!busy} onClick={e => void generate(e, true)}>Build now</button></div>
           </form>
           {props.demo && <p className="demo-note">{props.aiConnected ? "Local playground · Your games are saved on this computer." : "Ask a grown-up to connect the game maker, then bring your own idea to life."}</p>}
         </div>
@@ -289,7 +344,9 @@ export function Studio(props: Props) {
           : query ? "No games found" : "The next little world could be yours."}</p><span>{query ? "Try a different title, description, or creator name." : "Published games will appear here for everyone to play."}</span></div>}
         {libraryReady && library.hasMore && <div className="library-more"><button className="secondary-button" disabled={libraryBusy} onClick={() => void loadLibrary(libraryOffset)}>{libraryBusy ? <><LoaderCircle className="spin" size={16}/>Loading games…</> : <>Show more games <Plus size={16}/></>}</button></div>}
       </section>}
-      {props.view === "studio" && <><section className="library-section">
+      {props.view === "studio" && <>
+      {ideas.some(c => !c.projectId) && <section className="library-section" aria-label="Ideas in progress"><div className="section-heading"><h2>Ideas in progress</h2></div><div className="ideas-list">{ideas.filter(c => !c.projectId).map(c => <article className="idea-card" key={c.id}><div><h3>{c.title}</h3><span>Private discussion · {new Date(c.updatedAt).toLocaleDateString()}</span></div><button className="secondary-button" disabled={!!busy} onClick={() => void openIdea(c.id)}>Continue<span className="sr-only"> {c.title}</span></button><button className="text-button" disabled={!!busy} onClick={() => void discardIdea(c.id)}>Discard<span className="sr-only"> {c.title}</span></button></article>)}</div></section>}
+      <section className="library-section" aria-label="Your games">
         <div className="section-heading"><div><div className="eyebrow subdued">A HOME FOR YOUR IMAGINATION</div><h2>Your little worlds <span className="count">{projects.length}</span></h2></div><button className="text-button" onClick={() => { window.scrollTo({ top: 0, behavior: "smooth" }); promptRef.current?.focus(); }}><Plus size={16}/> New idea</button></div>
         {projects.length ? <div className="library-grid">{projects.map(p => <article className="library-card" key={p.id}>
           <button className={"library-art art-" + p.theme} aria-label={"Open " + p.title} disabled={!!busy} onClick={() => openProject(p.id)}><img src={projectIconURL(p)} width={64} height={64} alt="" loading="lazy"/></button>
@@ -300,8 +357,8 @@ export function Studio(props: Props) {
       <section className="phone-callout"><span className="phone-callout-icon"><Smartphone size={28}/></span><div><h3>A little world in your pocket.</h3><p>Publish a game, add it to your home screen, and take it on an offline adventure.</p></div><span className="callout-spark">✦</span></section>
       </>}<footer className="home-footer"><span>Dream it. Build it. Pocket it.</span><span className="app-version" aria-label={"Version " + props.version}>v{props.version}</span><span>Made for curious minds <span className="footer-heart">♡</span></span></footer>
     </main> : <main className="editor">
-      <div className="editor-heading"><div className="editor-heading-left"><button className="icon-button back" aria-label="Back to my studio" onClick={home} disabled={!!busy}><ChevronLeft size={21}/></button><div><h1>{project.title}</h1><span>{project.publishedRevisionId === project.currentRevisionId ? "This version is published" : project.publishedRevisionId ? "New changes · ready when you are" : "Your own little world"}</span></div></div>
-        <div className={"editor-actions" + (project.publishedRevisionId ? " is-published" : "")}>
+      <div className="editor-heading"><div className="editor-heading-left"><button className="icon-button back" aria-label="Back to my studio" onClick={home} disabled={!!busy}><ChevronLeft size={21}/></button><div><h1>{project?.title || conversation?.title || "New idea"}</h1><span>{!project ? "Idea in progress · private" : project.publishedRevisionId === project.currentRevisionId ? "This version is published" : project.publishedRevisionId ? "New changes · ready when you are" : "Your own little world"}</span></div></div>
+        {project && <div className={"editor-actions" + (project.publishedRevisionId ? " is-published" : "")}>
           <button className="secondary-button" aria-label="Versions" onClick={() => { setError(""); setModal("versions"); }} disabled={!!busy}><History size={16}/><span>Versions</span></button>
           {project.publishedRevisionId && <button className="icon-button" aria-label="Share game" title="Share game or publish changes" aria-haspopup="dialog" onClick={() => { setError(""); setModal("share"); }} disabled={!!busy}><Share2 size={17}/></button>}
           <button className="primary-button" onClick={() => {
@@ -309,20 +366,22 @@ export function Studio(props: Props) {
             else { setError(""); setModal("share"); }
           }} disabled={!!busy}>{busy === "unpublish" ? <LoaderCircle className="spin" size={16}/> : project.publishedRevisionId ? <GlobeOff size={16}/> : <Globe size={16}/>}{project.publishedRevisionId ? "Unpublish" : "Publish"}</button>
           <button className="icon-button game-options-button" aria-label="Game options" aria-haspopup="dialog" onClick={() => { setError(""); setModal("options"); }} disabled={!!busy}><Ellipsis size={20}/></button>
-        </div></div>
+        </div>}</div>
       <div className="mobile-tabs" role="tablist" aria-label="Game editor" onKeyDown={e => {
         if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
         e.preventDefault();
         const next = e.key === "Home" ? "chat" : e.key === "End" ? "play" : tab === "chat" ? "play" : "chat";
         setTab(next); document.getElementById("studio-tab-" + next)?.focus();
-      }}><button id="studio-tab-chat" role="tab" aria-controls="studio-chat" aria-selected={tab === "chat"} tabIndex={tab === "chat" ? 0 : -1} onClick={() => setTab("chat")}><Sparkles size={16}/> Make changes</button><button id="studio-tab-play" role="tab" aria-controls="studio-play" aria-selected={tab === "play"} tabIndex={tab === "play" ? 0 : -1} onClick={() => setTab("play")}><Play size={16}/> Play</button></div>
+      }}><button id="studio-tab-chat" role="tab" aria-controls="studio-chat" aria-selected={tab === "chat"} tabIndex={tab === "chat" ? 0 : -1} onClick={() => setTab("chat")}><Sparkles size={16}/>{project ? "Make changes" : "Discuss idea"}</button><button id="studio-tab-play" role="tab" aria-controls="studio-play" aria-selected={tab === "play"} tabIndex={tab === "play" ? 0 : -1} onClick={() => setTab("play")}><Play size={16}/> Play</button></div>
       <div className={"editor-panels tab-" + tab}>
-        <section id="studio-chat" className="chat-panel" aria-label="Game conversation"><div ref={chatScroll} className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Tell me what you'd like to change. A new character? More stars? A whole new twist?</p></div>
-          {[...project.revisions].sort((a,b) => a.createdAt.localeCompare(b.createdAt)).map((r,i) => <div className="conversation" key={r.id}><div className="user-message">{r.prompt}</div><div className="studio-message"><Sparkles size={15}/><div><p>{r.description}</p><span className="version-pill"><Check size={11}/> Version {i+1} saved {r.id === project.currentRevisionId && "· current"}</span></div></div></div>)}
-          {busy === "generate" && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> Making a little magic. This may take a minute…</div>}</div>
-          <form className="change-form" onSubmit={generate}><label className="sr-only" htmlFor="change">Describe a change to your game</label><div className="change-box"><textarea id="change" placeholder="Make the stars rainbow colored…" value={change} onChange={e => setChange(e.target.value)} maxLength={props.maxPromptCharacters} disabled={!!busy}/><button className="send-button" aria-label="Make this change" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><span className="composer-note">Every version is saved. Curiosity encouraged.</span></form>
+        <section id="studio-chat" className="chat-panel" aria-label="Game conversation"><div ref={chatScroll} className="chat-scroll"><div className="studio-intro"><span className="assistant-icon"><Sparkles size={19}/></span><h2>A little world, made by you.</h2><p>Talk through your idea or changes. Build when you’re ready.</p></div>
+          {conversation?.messages.map(m => <div className="conversation" key={m.id}>{m.kind === "user" ? <div className="user-message">{m.text}</div> : m.kind === "saved" || m.kind === "restored" ? <span className="version-pill"><Check size={11}/>{m.text} {m.revisionId === project?.currentRevisionId && "· current"}</span> : <div className={m.kind === "proposal" ? "proposal-card" : "studio-message"}><Sparkles size={15}/><p>{m.text}</p></div>}</div>)}
+          {conversation?.proposal && <div className="proposal-actions"><button className="primary-button" disabled={!!busy || !!change.trim()} onClick={() => void approveProposal()}>{project ? "Apply changes" : "Start building"}</button><span>Send another message to revise the proposal.</span></div>}
+          {retry && <button className="secondary-button" disabled={!!busy} onClick={() => void performAction(retry)}>Retry request</button>}
+          {(busy === "generate" || busy === "discuss") && <div className="thinking" role="status"><LoaderCircle className="spin" size={17}/> {busy === "discuss" ? "Thinking through your idea…" : "Building your game. This may take a minute…"}</div>}</div>
+          <form className="change-form" onSubmit={e => void generate(e)}><label className="sr-only" htmlFor="change">{project ? "Describe a change to your game" : "Continue your game idea"}</label><div className="change-box"><textarea id="change" placeholder={project ? "Make the stars rainbow colored…" : "Tell me more about your idea…"} value={change} onChange={e => setChange(e.target.value)} maxLength={props.maxPromptCharacters} disabled={!!busy}/><button className="send-button" aria-label="Send message" disabled={!change.trim() || !!busy}>{busy === "generate" ? <LoaderCircle className="spin" size={19}/> : <ArrowUp size={20}/>}</button></div><div className="composer-actions"><span className="composer-note">Discussion keeps your game as it is.</span><button type="button" className="secondary-button" disabled={!change.trim() || !!busy} onClick={e => void generate(e, true)}>Build now</button></div></form>
         </section>
-        <section id="studio-play" className="preview-panel" aria-label="Playable game preview">{current && <GamePreview revision={current} projectId={project.id}/>}<p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p></section>
+        <section id="studio-play" className="preview-panel" aria-label="Playable game preview">{current && project ? <GamePreview revision={current} projectId={project.id}/> : <div className="empty-preview"><Sparkles size={32}/><h2>Your game will appear here</h2><p>Discuss your idea, then choose Start building or Build now.</p></div>}{current && <p className="preview-caption"><Smartphone size={13}/> Touch to play. Publish to take it with you.</p>}</section>
       </div>
     </main>}
     {busy === "open" && <div className="loading-toast" role="status"><LoaderCircle size={17} className="spin"/> Opening your little world…</div>}

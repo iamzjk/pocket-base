@@ -9,6 +9,7 @@ export interface Revision {
   html: string;
   iconSvg?: string | null;
   prompt: string;
+  notes?: string | null;
   createdAt: string;
 }
 export interface Project {
@@ -44,13 +45,44 @@ export interface GeneratedGame {
   theme: Theme;
   html: string;
   iconSvg?: string | null;
+  notes?: string | null;
 }
 export interface SaveInput extends GeneratedGame {
   projectId?: string;
   baseRevisionId?: string;
   prompt: string;
+  conversationRequestId?: string;
+  conversationRequestStartedAt?: string;
 }
+export interface ConversationMessage {
+  id: string; kind: "user" | "assistant" | "proposal" | "saved" | "restored";
+  text: string; version: number; createdAt: string; revisionId?: string;
+}
+export interface Proposal { id: string; brief: string; version: number; baseRevisionId: string | null }
+export interface Conversation {
+  id: string; projectId: string | null; title: string; version: number;
+  summary: string; contextVersion: number; proposal: Proposal | null;
+  messages: ConversationMessage[]; updatedAt: string;
+}
+export type ConversationListItem = Pick<Conversation, "id" | "projectId" | "title" | "updatedAt">;
+export interface ConversationRequestInput {
+  requestId: string; version: number; baseRevisionId?: string;
+  kind: "discussion" | "direct" | "proposal"; prompt?: string; proposalId?: string;
+}
+export interface ConversationRequest {
+  id: string; conversationId: string; version: number; kind: ConversationRequestInput["kind"];
+  status: "pending" | "failed" | "complete"; prompt: string; inputPrompt?: string; brief?: string;
+  projectId: string | null; baseRevisionId: string | null; startedAt: string;
+}
+export interface Discussion { reply: string; summary: string; proposal?: string | null }
 export interface Store {
+  conversations(): Promise<ConversationListItem[]>;
+  createConversation(projectId?: string): Promise<Conversation>;
+  conversation(id: string): Promise<Conversation | null>;
+  deleteConversation(id: string): Promise<void>;
+  beginConversationRequest(id: string, input: ConversationRequestInput): Promise<ConversationRequest>;
+  completeDiscussion(id: string, result: Discussion, startedAt?: string): Promise<Conversation>;
+  failConversationRequest(id: string, startedAt?: string): Promise<void>;
   profile(): Promise<CreatorProfile>;
   saveProfile(displayName: string): Promise<CreatorProfile>;
   list(): Promise<Project[]>;

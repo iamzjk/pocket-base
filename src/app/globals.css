@@ -256,3 +256,12 @@ a.small-button{text-decoration:none;display:inline-flex;align-items:center}
   .leaderboard-info>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .leaderboard-count{font-size:11px;grid-column:3;grid-row:2}
 }
+
+/* Conversation turns and saved, unfinished ideas use the studio's existing palette. */
+.idea-bottom{flex-wrap:wrap}.idea-bottom>span{flex:1 1 100%}.ideas-list{display:grid;gap:12px}.idea-card{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:14px;padding:16px;background:#fffdf9}.idea-card>div{flex:1;min-width:0}.idea-card h3{font-size:15px;margin:0 0 6px;overflow-wrap:anywhere}.idea-card span{font-size:11px;color:#887297}.proposal-card{background:#f3edf9;border:1px solid #e3d5ef;border-radius:14px;padding:16px;color:#6f507f}.proposal-card p,.studio-message p{white-space:pre-wrap;overflow-wrap:anywhere}.proposal-actions{display:flex;flex-direction:column;align-items:flex-start;gap:10px;margin-bottom:20px}.proposal-actions>span{font-size:11px;color:#887297}.composer-actions{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px}.composer-actions .composer-note{margin:0;text-align:left;font-size:10px}.empty-preview{display:flex;flex:1;min-height:250px;flex-direction:column;align-items:center;justify-content:center;text-align:center;border:1px dashed #d6c9e1;border-radius:18px;padding:24px;background:#f4eff8;color:#8c70a0}.empty-preview h2{font-size:19px}.empty-preview p{max-width:280px;font-size:13px;line-height:1.8}.studio-message>p{min-width:0}.chat-scroll>.conversation:last-child{margin-bottom:12px}
+@media(max-width:400px){.idea-card{flex-wrap:wrap}.idea-card>div{flex-basis:100%}.composer-actions .composer-note{max-width:150px}.idea-bottom>.secondary-button,.idea-bottom>.primary-button{flex:1}}
+@media(max-width:900px){.is-editing{container-type:size}.change-form{flex-shrink:0}.empty-preview{min-height:0}}
+/* The visual viewport can shrink while the layout viewport keeps its height. */
+@container (max-height:500px){
+  .is-editing .topbar{display:none}.editor{padding-top:6px;padding-bottom:6px}.editor-heading{margin-bottom:6px;flex-wrap:nowrap}.editor-heading-left{flex-basis:auto}.editor-heading-left>div>span{display:none}.editor-actions{width:auto}.editor-actions .secondary-button>span{display:none}.mobile-tabs{margin-bottom:6px;padding:2px}.studio-intro,.composer-note,.preview-caption{display:none}.change-form{padding:8px}.conversation{margin-bottom:12px}
+}

@@ -1,3 +1,5 @@
+import { requestInput, runConversation } from "@/lib/conversation-flow";
+import { studioProject } from "@/lib/conversations";
 import { requireStore } from "@/lib/auth";
 import { errorResponse, readMutation, requireId, StudioError } from "@/lib/errors";
 import { generationModel, generateGame } from "@/lib/generate";
@@ -7,6 +9,7 @@ export async function POST(request: Request) {
   try {
     const body = await readMutation(request);
     const store = await requireStore(request);
+    if (body.conversationId) return jsonResponse(await runConversation(store, requireId(body.conversationId), requestInput(body, body.proposalId ? "proposal" : "direct")));
     const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
     const { maxPromptCharacters } = contentLimits();
     if (!prompt || prompt.length > maxPromptCharacters) throw new StudioError("Describe your idea in 1 to " + maxPromptCharacters.toLocaleString("en-US") + " characters.");
@@ -31,7 +34,7 @@ export async function POST(request: Request) {
       const game = await generateGame(prompt, previous, async () => {
         buildAttempt = await store.reserveGeneration(attempt);
       });
-      return jsonResponse(await store.save({ ...game, prompt, projectId, baseRevisionId }));
+      return jsonResponse(studioProject(await store.save({ ...game, notes: game.notes ?? previous?.notes ?? null, prompt, projectId, baseRevisionId })));
     } finally {
       if (buildAttempt) await store.finishGeneration(buildAttempt).catch(() => {});
       await store.finishGeneration(attempt).catch(() => {});

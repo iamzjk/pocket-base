@@ -48,6 +48,7 @@ export function validateGame(value: unknown): GeneratedGame {
     description: typeof game.description === "string" ? game.description.slice(0, 200) : "A little game made in Pocket Base.",
     theme: themes.includes(game.theme as GeneratedGame["theme"]) ? game.theme as GeneratedGame["theme"] : "cosmic",
     html,
+    notes: game.notes == null ? null : typeof game.notes === "string" && game.notes.length <= 8000 ? game.notes : (() => { throw new StudioError("The game maker returned invalid game notes. Your previous version is safe.", 502); })(),
     iconSvg: sanitizeIconSvg(game.iconSvg) || fallbackIconSvg(game.title.trim(), themes.includes(game.theme as GeneratedGame["theme"]) ? game.theme as GeneratedGame["theme"] : "cosmic"),
   };
 }

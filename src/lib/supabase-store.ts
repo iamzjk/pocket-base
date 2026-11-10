@@ -3,7 +3,7 @@ import { LIBRARY_PAGE_SIZE, type Project, type ProjectDetail, type Revision, typ
 import { StudioError } from "./errors";
 import { publicName } from "./profile";
 import { libraryQuery, normalizeLibrary } from "./library";
-import type { CreatorProfile } from "./types";
+import type { Conversation, ConversationListItem, ConversationRequest, ConversationRequestInput, Discussion, CreatorProfile } from "./types";
 import { validateSaveLimits } from "./save-limits";
 
 type Row = Record<string, unknown>;
@@ -18,7 +18,7 @@ function detail(row: Row): ProjectDetail {
   return { ...project(row), revisions: (row.revisions as Row[]).map(r => ({
     id: String(r.id), projectId: String(r.project_id), title: String(r.title),
     description: String(r.description), theme: r.theme as Revision["theme"], html: String(r.html),
-    prompt: String(r.prompt), iconSvg: typeof r.icon_svg === "string" ? r.icon_svg : null, createdAt: String(r.created_at),
+    notes: typeof r.notes === "string" ? r.notes : null, prompt: String(r.prompt), iconSvg: typeof r.icon_svg === "string" ? r.icon_svg : null, createdAt: String(r.created_at),
   })) };
 }
 export function databaseError(error: { message: string } | null) {
@@ -35,6 +35,17 @@ export function databaseError(error: { message: string } | null) {
 }
 export class SupabaseStore implements Store {
   constructor(private client: SupabaseClient) {}
+  private async conversationCommand<T>(id: string | null, action: string, input = {}): Promise<T> {
+    const { data, error } = await this.client.rpc("conversation_command", { p_id: id, p_action: action, p_input: input });
+    databaseError(error); return data;
+  }
+  async conversations() { return this.conversationCommand<ConversationListItem[]>(null, "list"); }
+  async createConversation(projectId?: string) { return this.conversationCommand<Conversation>(null, "create", { projectId }); }
+  async conversation(id: string) { return this.conversationCommand<Conversation | null>(id, "read"); }
+  async deleteConversation(id: string) { await this.conversationCommand(id, "delete"); }
+  async beginConversationRequest(id: string, input: ConversationRequestInput) { return this.conversationCommand<ConversationRequest>(id, "begin", input); }
+  async completeDiscussion(id: string, result: Discussion, startedAt?: string) { return this.conversationCommand<Conversation>(id, "reply", { ...result, startedAt }); }
+  async failConversationRequest(id: string, startedAt?: string) { await this.conversationCommand(id, "fail", { startedAt }); }
   async profile(): Promise<CreatorProfile> {
     const { data, error } = await this.client.rpc("creator_profile");
     databaseError(error);
@@ -70,7 +81,7 @@ export class SupabaseStore implements Store {
     validateSaveLimits(input);
     const { data, error } = await this.client.rpc("save_game", {
       p_project_id: input.projectId || null, p_base_revision_id: input.baseRevisionId || null,
-      p_title: input.title, p_description: input.description, p_theme: input.theme, p_html: input.html, p_prompt: input.prompt, p_icon_svg: input.iconSvg || null,
+      p_title: input.title, p_description: input.description, p_theme: input.theme, p_html: input.html, p_prompt: input.prompt, p_icon_svg: input.iconSvg || null, p_notes: input.notes ?? null, p_conversation_request_id: input.conversationRequestId || null, p_request_started_at: input.conversationRequestStartedAt || null,
     });
     databaseError(error);
     return detail(data);

@@ -43,7 +43,7 @@ test("studio cards and publishing show saved logos, including for private games"
   for (const viewport of [{ width: 320, height: 740 }, { width: 390, height: 844 }, { width: 1440, height: 1000 }]) {
     await page.setViewportSize(viewport);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.locator(".library-section").screenshot({ path: path.join(evidence, "studio-logos-" + viewport.width + ".png") });
+    await page.getByRole("region", { name: "Your games", exact: true }).screenshot({ path: path.join(evidence, "studio-logos-" + viewport.width + ".png") });
   }
 
   await page.getByRole("button", { name: "Edit " + coral.title, exact: true }).click();

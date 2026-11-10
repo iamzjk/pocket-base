@@ -18,6 +18,7 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
       },
     }), { headers: { "Content-Type": "application/json", "X-Generation-Id": "gen-fictional-timeout" } });
     if (prompt.includes("busy model")) return new Response("Fictional upstream capacity error", { status: 429 });
+    if (body.messages[0].content.includes("Discuss the user's game")) return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ reply: "Let’s make a touch-friendly moon game. Here is a proposal.", summary: "Fictional moon bubbles with touch controls.", proposal: "Make a fictional moon bubble game with large touch controls and a gentle pastel palette." }) } }] });
     if (planning) return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(
       prompt.includes("invalid plan model") ? { plan: "" } : { plan: "Make a fictional touch-friendly moon bubble game with clear controls." }
     ) } }] });
@@ -29,7 +30,7 @@ if (process.env.POCKET_BASE_E2E_MODEL === "true") {
       (updated ? "Pop a rainbow bubble" : "Pop a moon bubble") + '</button><p id="score">Popped 0</p><script>let score=0;document.getElementById("pop").onclick=()=>{score++;document.getElementById("score").textContent="Popped "+score;};</script></body></html>';
     return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({
       iconSvg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="' + color + '"/><circle cx="256" cy="256" r="100" fill="#fff"/></svg>',
-      title: "Moon Bubbles", description: updated ? "A fictional updated game for browser testing." : "A fictional first game for browser testing.", theme: updated ? "lilac" : "mint", html,
+      notes: "PRIVATE fictional game notes: tap bubbles; score is an integer.", title: "Moon Bubbles", description: updated ? "A fictional updated game for browser testing." : "A fictional first game for browser testing.", theme: updated ? "lilac" : "mint", html,
     }) } }] });
   };
 }
