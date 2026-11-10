@@ -208,6 +208,6 @@ Chromium automation does not substitute for home-screen installation and app swi
 
 ## Releases
 
-This release is **1.4.0**. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`; browser favicons use a tight transparent crop, while home-screen icons keep maskable-safe padding.
+This release is **1.4.1**. Account controls wait for client hydration before accepting input, preventing early signup-tab clicks from being lost on slower page loads. Every release must increment `package.json` and the root/package versions in `package-lock.json`; the footer reads that version automatically. Run all checks before releasing through the existing Vercel Git integration. App icon assets can be regenerated from the existing PocketMark with `node scripts/app-icons.mjs`; browser favicons use a tight transparent crop, while home-screen icons keep maskable-safe padding.
 
 The maintained originals are in `src/content/classic-games.json`, with a matching numbered database seed. Future content updates must add a new migration and change the relevant revision IDs/dates; never rewrite an applied migration. Test fixtures use different IDs.

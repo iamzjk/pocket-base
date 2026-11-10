@@ -18,6 +18,23 @@ async function localAuth(page: Page) {
   });
 }
 
+test("account controls wait for hydration before accepting input",async({page})=>{
+  let release!: () => void;
+  const scriptsReady = new Promise<void>(resolve => { release = resolve; });
+  await page.route(/\/_next\/static\/.*\.js(?:\?.*)?$/,async route=>{ await scriptsReady; await route.continue(); });
+  try {
+    await page.goto(base+"/account",{waitUntil:"commit"});
+    const create = page.getByRole("button",{name:"Create account",exact:true});
+    await expect(create).toBeDisabled();
+    await expect(page.getByLabel("Email",{exact:true})).toBeDisabled();
+    await expect(page.getByRole("button",{name:"Open my studio",exact:true})).toBeDisabled();
+    release();
+    await create.click();
+    await expect(page.getByLabel("Public name",{exact:true})).toBeVisible();
+    await expect(page.getByRole("button",{name:"Create my account",exact:true})).toBeEnabled();
+  } finally { release(); }
+});
+
 test("public signup requires a name, persists a cookie session, and edits public names without CAPTCHA",async({page})=>{
   await localAuth(page);await page.goto(base+"/library");
   await page.getByRole("link",{name:"Sign in / Sign up",exact:true}).click();

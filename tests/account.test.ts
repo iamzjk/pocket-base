@@ -40,7 +40,7 @@ test("configured account forms expose signup without requiring CAPTCHA settings"
   const markup=renderToStaticMarkup(createElement(AuthForm,{config:{url:"https://fictional.example",key:"fictional-key"}}));
   assert.ok(markup.includes("Open my studio"));assert.ok(markup.includes("Create account"));
   assert.ok(markup.includes('class="auth-tabs"'));
-  assert.equal(markup.includes('class="primary-button" disabled'),false);
+  assert.ok(markup.includes('class="primary-button" disabled'));
   const unconfigured=renderToStaticMarkup(createElement(AuthForm,{config:null}));
   assert.ok(unconfigured.includes("Account access isn’t available yet"));
   assert.equal(unconfigured.includes("Create account"),false);
